@@ -1,0 +1,59 @@
+#
+# KRECK institution-seeding import type: Finance Fees.
+# Targets the real gibbonFinanceFee table. Resolves school year + fee category
+# by human-readable name (FK lookup). Dedup on (schoolYear, name/nameShort) so
+# re-running is safe. Validated against the live DB schema by ImportType.
+#
+details:
+    type: kreckFees
+    category: Finance (KRECK)
+    name: Finance - Fees
+    table: gibbonFinanceFee
+    modes: { update: true, insert: true, export: true }
+access:
+    module: Finance
+    action: Manage Fees
+primaryKey: gibbonFinanceFeeID
+uniqueKeys:
+    - [ gibbonSchoolYearID, name ]
+    - [ gibbonSchoolYearID, nameShort ]
+table:
+    gibbonSchoolYearID:
+        name: "School Year"
+        desc: "School year name, as set in School Admin. Must already exist."
+        args: { filter: schoolyear, required: true, custom: true }
+        relationship: { table: gibbonSchoolYear, key: gibbonSchoolYearID, field: name }
+    gibbonFinanceFeeCategoryID:
+        name: "Fee Category"
+        desc: "Fee category name. Must already exist (import categories first)."
+        args: { filter: string, required: true, custom: true }
+        relationship: { table: gibbonFinanceFeeCategory, key: gibbonFinanceFeeCategoryID, field: name }
+    name:
+        name: "Name"
+        desc: "Fee name. Must be unique for this school year."
+        args: { filter: string, required: true }
+    nameShort:
+        name: "Short Name"
+        desc: "Abbreviation, max 6 characters. Unique for this school year."
+        args: { filter: string, required: true }
+    description:
+        name: "Description"
+        desc: "Optional."
+        args: { filter: string, required: false }
+    fee:
+        name: "Amount"
+        desc: "Decimal amount, e.g. 1500.00"
+        args: { filter: decimal, required: true }
+    active:
+        name: "Active"
+        desc: "Y or N. Defaults to Y."
+        args: { filter: yesno, custom: true }
+    gibbonPersonIDCreator:
+        name: "Created By"
+        desc: "Username or Email of the creator (the KRECK importer fills this automatically)."
+        args: { filter: string, custom: true }
+        relationship: { table: gibbonPerson, key: gibbonPersonID, field: username|email }
+    timestampCreator:
+        name: "Created Timestamp"
+        desc: ""
+        args: { filter: timestamp, function: timestamp }

@@ -1,0 +1,46 @@
+#
+# KRECK institution-seeding import type: Finance Fee Categories.
+# Gibbon ships no finance import types; this adds one, targeting the real
+# gibbonFinanceFeeCategory table. Loaded by the KRECK guided importer (and
+# usable from Gibbon's native Import From File if copied to the custom folder).
+# Validated against the live DB schema by Gibbon\Data\ImportType.
+#
+details:
+    type: kreckFeeCategories
+    category: Finance (KRECK)
+    name: Finance - Fee Categories
+    table: gibbonFinanceFeeCategory
+    modes: { update: true, insert: true, export: true }
+access:
+    module: Finance
+    action: Manage Fees
+primaryKey: gibbonFinanceFeeCategoryID
+uniqueKeys:
+    - [ name ]
+    - [ nameShort ]
+table:
+    name:
+        name: "Name"
+        desc: "Fee category name, e.g. Tuition. Must be unique."
+        args: { filter: string, required: true }
+    nameShort:
+        name: "Short Name"
+        desc: "Abbreviation, max 6 characters. Must be unique."
+        args: { filter: string, required: true }
+    description:
+        name: "Description"
+        desc: "Optional."
+        args: { filter: string, required: false }
+    active:
+        name: "Active"
+        desc: "Y or N. Defaults to Y."
+        args: { filter: yesno, custom: true }
+    gibbonPersonIDCreator:
+        name: "Created By"
+        desc: "Username or Email of the creator (the KRECK importer fills this automatically)."
+        args: { filter: string, custom: true }
+        relationship: { table: gibbonPerson, key: gibbonPersonID, field: username|email }
+    timestampCreator:
+        name: "Created Timestamp"
+        desc: ""
+        args: { filter: timestamp, function: timestamp }
