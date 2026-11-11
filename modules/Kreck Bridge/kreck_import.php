@@ -94,6 +94,11 @@ ob_start();
 </style>
 <div class="kreck-imp" style="max-width:1000px">
     <p><?php echo __('Seed the institution into Gibbon. Fill the table in-app, or upload an Excel/CSV file. KRECK validates every row (dry-run), shows errors, and commits safely — re-running will not duplicate existing records.'); ?></p>
+    <div style="margin:0 0 14px; padding:10px 14px; background:#eef5f4; border-radius:8px; display:flex; align-items:center; gap:10px; flex-wrap:wrap">
+        <b><?php echo __('Have everything at once?'); ?></b>
+        <span class="emphasis small" style="flex:1"><?php echo __('Import the whole institution from a single multi-sheet workbook (all types, one atomic pass).'); ?></span>
+        <a class="kbtn" style="text-decoration:none" href="<?php echo htmlspecialchars($session->get('absoluteURL') . '/index.php?q=/modules/Kreck Bridge/kreck_import_institution.php'); ?>"><?php echo __('Whole-institution import →'); ?></a>
+    </div>
 
     <form method="get" action="<?php echo htmlspecialchars($self); ?>" style="margin-bottom:10px">
         <input type="hidden" name="q" value="/modules/Kreck Bridge/kreck_import.php">

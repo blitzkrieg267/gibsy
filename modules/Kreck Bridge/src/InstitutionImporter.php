@@ -245,6 +245,104 @@ class KreckInstitutionImporter
         return ['rows' => $out, 'mapping' => $mapping];
     }
 
+    /** Excel-safe, stable sheet title for a type label (used writing + reading). */
+    public function sheetTitle(string $label): string
+    {
+        return substr(preg_replace('#[:\\\\/?*\[\]]#', '-', $label), 0, 31);
+    }
+
+    /** Generate a blank multi-sheet institution workbook (one sheet per type). */
+    public function generateWorkbookFile(string $path): void
+    {
+        $ss = new \PhpOffice\PhpSpreadsheet\Spreadsheet();
+        $first = true;
+        foreach ($this->typeRegistry() as $e) {
+            $it = $this->loadType($e['name']);
+            if (!$it) continue;
+            $cols = $this->describeFields($it);
+            $sheet = $first ? $ss->getActiveSheet() : $ss->createSheet();
+            $first = false;
+            $sheet->setTitle($this->sheetTitle($e['label']));
+            $col = 1;
+            foreach ($cols as $c) {
+                // Header = exact field label (so re-upload matches); required marked by bold.
+                $cell = $sheet->getCellByColumnAndRow($col, 1);
+                $cell->setValue($c['label']);
+                if ($c['required']) {
+                    $sheet->getStyleByColumnAndRow($col, 1)->getFont()->setBold(true);
+                }
+                $col++;
+            }
+        }
+        $ss->setActiveSheetIndex(0);
+        (new \PhpOffice\PhpSpreadsheet\Writer\Xlsx($ss))->save($path);
+    }
+
+    /** Parse an uploaded multi-sheet workbook into [typeName => field-keyed rows], in dependency order. */
+    public function parseWorkbookSheets(string $filePath): array
+    {
+        $ss = \PhpOffice\PhpSpreadsheet\IOFactory::load($filePath);
+        $titleToType = [];
+        foreach ($this->typeRegistry() as $e) {
+            $titleToType[strtolower($this->sheetTitle($e['label']))] = $e['name'];
+        }
+        $found = [];
+        foreach ($ss->getWorksheetIterator() as $sheet) {
+            $typeName = $titleToType[strtolower(trim($sheet->getTitle()))] ?? null;
+            if (!$typeName) continue;
+            $data = $sheet->toArray(null, true, true, false);
+            $headers = array_map(fn($h) => trim((string) $h), array_shift($data) ?: []);
+            $rows = [];
+            foreach ($data as $r) {
+                if (count(array_filter($r, fn($v) => $v !== '' && $v !== null)) === 0) continue;
+                $row = [];
+                foreach ($headers as $i => $h) {
+                    if ($h === '') continue;
+                    $row[$h] = $r[$i] ?? '';
+                }
+                $rows[] = $row;
+            }
+            if (empty($rows)) continue;
+            $it = $this->loadType($typeName);
+            $matched = $this->matchToFields($it, $headers, $rows);
+            $found[$typeName] = $matched['rows'];
+        }
+        // Return in registry (dependency) order.
+        $ordered = [];
+        foreach ($this->typeRegistry() as $e) {
+            if (isset($found[$e['name']])) $ordered[$e['name']] = $found[$e['name']];
+        }
+        return $ordered;
+    }
+
+    /**
+     * Import a whole institution atomically: run every type live inside ONE
+     * transaction (so FK lookups resolve against rows inserted by earlier
+     * sheets), then commit only if $commit AND there were zero errors —
+     * otherwise roll back. A dry-run ($commit=false) always rolls back, which
+     * is how validation can resolve cross-sheet references without persisting.
+     */
+    public function runWorkbook(array $typeRows, bool $commit, int $userID, string $mode = 'sync'): array
+    {
+        $perType = [];
+        $totalErrors = 0;
+        $this->db->beginTransaction();
+        try {
+            foreach ($typeRows as $typeName => $rows) {
+                $res = $this->run($typeName, $rows, true, $userID, $mode);
+                $perType[$typeName] = $res;
+                $totalErrors += count($res['errors']);
+            }
+        } catch (\Throwable $e) {
+            if ($this->db->getConnection()->inTransaction()) $this->db->rollBack();
+            return ['ok' => false, 'committed' => false, 'error' => $e->getMessage(), 'perType' => $perType, 'totalErrors' => $totalErrors + 1];
+        }
+        $doCommit = $commit && $totalErrors === 0;
+        if ($doCommit) $this->db->commit();
+        else $this->db->rollBack();
+        return ['ok' => $totalErrors === 0, 'committed' => $doCommit, 'perType' => $perType, 'totalErrors' => $totalErrors];
+    }
+
     private function rowsToCsv(array $fields, array $rows): string
     {
         $esc = function ($v) {

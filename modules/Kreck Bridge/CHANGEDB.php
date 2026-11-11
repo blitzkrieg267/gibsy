@@ -20,7 +20,7 @@ INSERT INTO gibbonAction
  VALUES ((SELECT gibbonModuleID FROM gibbonModule WHERE name='Kreck Bridge'),
   'Import Institution Data', 1, 'Bridge',
   'Seed institution data into Gibbon via an in-app table or an Excel/CSV upload.',
-  'kreck_import.php', 'kreck_import.php', 'Y', 'Y', 'Y','N','N','N','N', 'Y','N','N','N');end
+  'kreck_import.php,kreck_import_institution.php', 'kreck_import.php', 'Y', 'Y', 'Y','N','N','N','N', 'Y','N','N','N');end
 INSERT INTO gibbonPermission (gibbonRoleID, gibbonActionID)
  VALUES ('001', (SELECT gibbonActionID FROM gibbonAction
    WHERE name='Import Institution Data'
