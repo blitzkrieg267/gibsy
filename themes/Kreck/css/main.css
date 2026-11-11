@@ -1,0 +1,71 @@
+/* ==========================================================================
+   KRECK theme for Gibbon — reskins the open-source Gibbon SIS into the
+   KRECK SMS look: a deep-slate app background with a teal accent, matched to
+   the KRECK MicroLearn Moodle (LMS) theme so SMS and LMS feel like one product.
+
+   This file is loaded as the active theme's stylesheet
+   (src/Domain/System/Theme.php adds themes/<name>/css/main.css) AFTER Gibbon's
+   core/theme CSS, so these rules win the cascade. No Gibbon core is changed.
+   ========================================================================== */
+
+:root {
+    --kreck-slate-900: #0f2233;
+    --kreck-slate-800: #14384a;
+    --kreck-teal-700:  #0e6b63;
+    --kreck-teal-600:  #0e9f9a;
+    --kreck-teal-500:  #14b8a6;
+    --kreck-amber-500: #f59e0b;
+    --kreck-ink:       #0f1e2e;
+}
+
+/* --- Page background: replace Gibbon's purple gradient with KRECK slate/teal.
+   The body carries a `.body-gradient-<colour>` class driven by themeColour;
+   target every variant so the skin holds whatever accent is selected. -------- */
+[class*="body-gradient-"] {
+    background: linear-gradient(135deg, #0f2233 0%, #14384a 55%, #0e6b63 100%) no-repeat fixed !important;
+}
+
+/* --- Top banner / brand area: keep text crisp on the slate. ----------------- */
+#header a,
+#header .title,
+header a {
+    color: #ffffff;
+}
+
+/* --- Primary action buttons & key accents → teal (Gibbon defaults lean purple).
+   Covers standard Gibbon submit buttons and the common button classes. ------- */
+input[type="submit"].button,
+input[type="button"].button,
+button.button,
+.button.button-primary,
+a.button {
+    background-color: var(--kreck-teal-600) !important;
+    background-image: none !important;
+    border-color: var(--kreck-teal-700) !important;
+    color: #ffffff !important;
+}
+input[type="submit"].button:hover,
+button.button:hover,
+a.button:hover {
+    background-color: var(--kreck-teal-700) !important;
+}
+
+/* --- Links & interactive accents: retune purple-leaning utilities to teal. --- */
+a:not(.button):hover {
+    color: var(--kreck-teal-700);
+}
+
+/* Tailwind-style purple utility classes Gibbon uses for accents → teal. */
+.text-purple-600, .text-purple-700, .text-purple-800 { color: var(--kreck-teal-700) !important; }
+.bg-purple-600, .bg-purple-700, .bg-purple-800 { background-color: var(--kreck-teal-600) !important; }
+.border-purple-500, .border-purple-600, .border-purple-700 { border-color: var(--kreck-teal-600) !important; }
+.ring-purple-500, .ring-purple-600 { --tw-ring-color: var(--kreck-teal-500) !important; }
+
+/* Active tab / selected states that use the accent. */
+.active-accent, .border-b-2.border-purple-600 { border-color: var(--kreck-teal-600) !important; }
+
+/* --- Focus rings: teal, for a consistent KRECK feel. ----------------------- */
+input:focus, select:focus, textarea:focus {
+    outline-color: var(--kreck-teal-500);
+    border-color: var(--kreck-teal-500);
+}

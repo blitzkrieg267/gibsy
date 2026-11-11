@@ -1,0 +1,3 @@
+KRECK theme for Gibbon
+Reskins Gibbon into the KRECK SMS look (slate + teal), matched to KRECK MicroLearn (Moodle LMS).
+Image assets inherited from the Gibbon Default theme (GPL-3.0).
