@@ -77,6 +77,33 @@ class KreckManifestBuilder
         return $this->rows("SELECT gibbonSchoolYearID, name, status FROM gibbonSchoolYear ORDER BY sequenceNumber DESC");
     }
 
+    /**
+     * The school year the export should default to. The Current year if it has
+     * enrolled students; otherwise the year with the most student enrolments, so
+     * data freshly imported into an Upcoming year is picked up automatically
+     * instead of showing an empty Current year. Falls back to the Current year.
+     */
+    public function defaultYearId(): ?string
+    {
+        $cur = $this->schoolYear(null);
+        $curId = $cur['gibbonSchoolYearID'] ?? null;
+        if ($curId) {
+            $n = (int) ($this->one(
+                "SELECT COUNT(*) c FROM gibbonStudentEnrolment WHERE gibbonSchoolYearID = :id",
+                ['id' => $curId])['c'] ?? 0);
+            if ($n > 0) {
+                return (string) $curId;
+            }
+        }
+        $best = $this->one(
+            "SELECT gibbonSchoolYearID id, COUNT(*) n FROM gibbonStudentEnrolment
+             GROUP BY gibbonSchoolYearID ORDER BY n DESC LIMIT 1");
+        if (!empty($best['id'])) {
+            return (string) $best['id'];
+        }
+        return $curId !== null ? (string) $curId : null;
+    }
+
     private function roleName(string $gibbonRole): string
     {
         switch ($gibbonRole) {
@@ -149,15 +176,19 @@ class KreckManifestBuilder
         $limitClasses = isset($opts['limitClasses']) && (int)$opts['limitClasses'] > 0 ? (int)$opts['limitClasses'] : null;
 
         // ---- Students (role 003), with form/year group for the year ---------
+        // Students are identified by their enrolment for the year + a Student-category
+        // primary role (resolved by category, not a hardcoded role id, so non-standard
+        // installs still work). status Full|Expected are both exportable.
         $studentRows = $this->rows(
             "SELECT p.gibbonPersonID, p.username, p.studentID, p.firstName, p.preferredName, p.surname, p.email,
                     fg.name AS formGroup, fg.nameShort AS formGroupShort, yg.name AS yearGroup
              FROM gibbonPerson p
              JOIN gibbonStudentEnrolment se
                   ON se.gibbonPersonID = p.gibbonPersonID AND se.gibbonSchoolYearID = :syid
+             JOIN gibbonRole r ON r.gibbonRoleID = p.gibbonRoleIDPrimary AND r.category = 'Student'
              LEFT JOIN gibbonFormGroup fg ON fg.gibbonFormGroupID = se.gibbonFormGroupID
              LEFT JOIN gibbonYearGroup yg ON yg.gibbonYearGroupID = se.gibbonYearGroupID
-             WHERE p.gibbonRoleIDPrimary = '003' AND p.status = 'Full'
+             WHERE p.status = 'Full'
              ORDER BY p.surname, p.firstName",
             ['syid' => $syid]
         );
@@ -349,14 +380,14 @@ class KreckManifestBuilder
         if (!$sy) return ['error' => 'No school year found.'];
         $syid = $sy['gibbonSchoolYearID'];
 
-        $students = (int) ($this->one("SELECT COUNT(*) c FROM gibbonPerson p JOIN gibbonStudentEnrolment se ON se.gibbonPersonID=p.gibbonPersonID AND se.gibbonSchoolYearID=:syid WHERE p.gibbonRoleIDPrimary='003' AND p.status='Full'", ['syid' => $syid])['c'] ?? 0);
+        $students = (int) ($this->one("SELECT COUNT(*) c FROM gibbonPerson p JOIN gibbonStudentEnrolment se ON se.gibbonPersonID=p.gibbonPersonID AND se.gibbonSchoolYearID=:syid JOIN gibbonRole r ON r.gibbonRoleID=p.gibbonRoleIDPrimary AND r.category='Student' WHERE p.status='Full'", ['syid' => $syid])['c'] ?? 0);
         $staff    = (int) ($this->one("SELECT COUNT(DISTINCT p.gibbonPersonID) c FROM gibbonPerson p JOIN gibbonRole r ON r.gibbonRoleID=p.gibbonRoleIDPrimary WHERE r.category='Staff' AND p.status='Full'")['c'] ?? 0);
         $formGroups = (int) ($this->one("SELECT COUNT(*) c FROM gibbonFormGroup WHERE gibbonSchoolYearID=:syid", ['syid' => $syid])['c'] ?? 0);
         $classes  = (int) ($this->one("SELECT COUNT(*) c FROM gibbonCourseClass cc JOIN gibbonCourse c ON c.gibbonCourseID=cc.gibbonCourseID AND c.gibbonSchoolYearID=:syid", ['syid' => $syid])['c'] ?? 0);
         $enrol    = (int) ($this->one("SELECT COUNT(*) c FROM gibbonCourseClassPerson ccp JOIN gibbonCourseClass cc ON cc.gibbonCourseClassID=ccp.gibbonCourseClassID JOIN gibbonCourse c ON c.gibbonCourseID=cc.gibbonCourseID AND c.gibbonSchoolYearID=:syid", ['syid' => $syid])['c'] ?? 0);
 
-        $studentsNoEmail = (int) ($this->one("SELECT COUNT(*) c FROM gibbonPerson p JOIN gibbonStudentEnrolment se ON se.gibbonPersonID=p.gibbonPersonID AND se.gibbonSchoolYearID=:syid WHERE p.gibbonRoleIDPrimary='003' AND p.status='Full' AND (p.email IS NULL OR p.email='')", ['syid' => $syid])['c'] ?? 0);
-        $studentsNoForm  = (int) ($this->one("SELECT COUNT(*) c FROM gibbonPerson p JOIN gibbonStudentEnrolment se ON se.gibbonPersonID=p.gibbonPersonID AND se.gibbonSchoolYearID=:syid WHERE p.gibbonRoleIDPrimary='003' AND p.status='Full' AND (se.gibbonFormGroupID IS NULL OR se.gibbonFormGroupID=0)", ['syid' => $syid])['c'] ?? 0);
+        $studentsNoEmail = (int) ($this->one("SELECT COUNT(*) c FROM gibbonPerson p JOIN gibbonStudentEnrolment se ON se.gibbonPersonID=p.gibbonPersonID AND se.gibbonSchoolYearID=:syid JOIN gibbonRole r ON r.gibbonRoleID=p.gibbonRoleIDPrimary AND r.category='Student' WHERE p.status='Full' AND (p.email IS NULL OR p.email='')", ['syid' => $syid])['c'] ?? 0);
+        $studentsNoForm  = (int) ($this->one("SELECT COUNT(*) c FROM gibbonPerson p JOIN gibbonStudentEnrolment se ON se.gibbonPersonID=p.gibbonPersonID AND se.gibbonSchoolYearID=:syid JOIN gibbonRole r ON r.gibbonRoleID=p.gibbonRoleIDPrimary AND r.category='Student' WHERE p.status='Full' AND (se.gibbonFormGroupID IS NULL OR se.gibbonFormGroupID=0)", ['syid' => $syid])['c'] ?? 0);
 
         $warnings = [];
         if ($studentsNoEmail > 0) $warnings[] = sprintf('%d student(s) have no email — a deterministic placeholder (…@students.%s) will be generated so import still works.', $studentsNoEmail, $this->schoolSlug());
@@ -365,6 +396,7 @@ class KreckManifestBuilder
 
         return [
             'schoolYear' => $sy['name'],
+            '_syid'      => $sy['gibbonSchoolYearID'],
             'counts' => compact('students', 'staff', 'formGroups', 'classes', 'enrol'),
             'warnings' => $warnings,
         ];
