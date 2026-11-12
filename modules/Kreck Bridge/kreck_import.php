@@ -9,25 +9,75 @@ A KRECK-branded importer that reuses Gibbon's native import engine
 Both validate (dry-run) with per-row errors and commit safely (dedup/sync).
 */
 
-require_once __DIR__ . '/src/InstitutionImporter.php';
-
 use Gibbon\Data\PasswordPolicy;
 use Gibbon\Forms\PersonalDataFieldSettings;
 use Gibbon\Domain\System\SettingGateway;
 use Gibbon\Contracts\Database\Connection;
 
-if (isActionAccessible($guid, $connection2, '/modules/Kreck Bridge/kreck_import.php') == false) {
-    $page->addError(__('You do not have access to this action.'));
-    return;
-}
+// ===== KRECK in-page diagnostics ============================================
+// Replaces Gibbon's generic "the Gibbons have escaped" with a precise, in-page
+// report: how far the page got, what broke (message + file:line + trace), and
+// which module files are actually present on the server. Add &kreckDebug=1 to
+// the URL to see the full trace even on success.
+$kreckBaseOb = ob_get_level();
+$kreckSteps = [];
+$kstep = function ($label, $ok = true, $detail = '') use (&$kreckSteps) { $kreckSteps[] = [$ok, $label, $detail]; };
+$kreckDiag = function (?\Throwable $e = null) use (&$kreckSteps) {
+    $esc = fn ($s) => htmlspecialchars((string) $s);
+    $files = ['kreck_import.php', 'kreck_import_institution.php', 'kreck_export.php', 'kreck_lms.php', 'kreck_marks.php',
+        'kreck_import_links.php', 'kreck_settings.php', 'kreck_settingsProcess.php', 'manifest.php', 'version.php', 'CHANGEDB.php',
+        'src/InstitutionImporter.php', 'src/ManifestBuilder.php', 'src/KreckLinkStore.php', 'src/SalaryManager.php',
+        'imports/kreck_feeCategories.yml', 'imports/kreck_fees.yml'];
+    $h = '<div style="max-width:960px;font-family:system-ui,-apple-system,sans-serif;margin-top:12px">';
+    $h .= '<h3 style="color:#0e6b63;margin:0 0 10px">KRECK Import — diagnostics</h3>';
+    $h .= '<ol style="line-height:1.7;padding-left:22px;margin:0 0 12px">';
+    foreach ($kreckSteps as $s) {
+        $h .= '<li>' . ($s[0] ? '&#9989;' : '&#10060;') . ' ' . $esc($s[1])
+            . ($s[2] !== '' ? ' <span style="color:#64748b">&mdash; ' . $esc($s[2]) . '</span>' : '') . '</li>';
+    }
+    $h .= '</ol>';
+    if ($e) {
+        $h .= '<div style="background:#fff1f0;border:1px solid #ffa39e;border-radius:8px;padding:12px 14px">'
+            . '<b style="color:#b42318">Stopped here: ' . $esc(get_class($e)) . '</b>'
+            . '<div style="margin:6px 0;color:#7a271a;font-weight:600">' . $esc($e->getMessage()) . '</div>'
+            . '<div style="color:#64748b;font-size:13px">' . $esc($e->getFile()) . ' : line ' . $e->getLine() . '</div>'
+            . '<pre style="background:#fff;border:1px solid #eee;border-radius:6px;padding:8px;overflow:auto;font-size:12px;max-height:220px">'
+            . $esc($e->getTraceAsString()) . '</pre></div>';
+    }
+    $h .= '<h4 style="margin:14px 0 6px">Module files on this server</h4>';
+    $h .= '<ul style="columns:2;-webkit-columns:2;line-height:1.6;padding-left:18px;font-size:13px">';
+    foreach ($files as $f) {
+        $h .= '<li>' . (is_file(__DIR__ . '/' . $f) ? '&#9989;' : '&#10060; MISSING') . ' ' . $esc($f) . '</li>';
+    }
+    $h .= '</ul><p style="color:#64748b;font-size:13px">PHP ' . $esc(PHP_VERSION) . ' &middot; folder: ' . $esc(__DIR__) . '</p></div>';
+    return $h;
+};
+$KRECK_DEBUG = isset($_REQUEST['kreckDebug']);
 
-$importer = new KreckInstitutionImporter(
-    $container->get(Connection::class),
-    $container->get(PasswordPolicy::class),
-    $container->get(PersonalDataFieldSettings::class),
-    $container->get(SettingGateway::class),
-    __DIR__ . '/imports'
-);
+try {
+    $kstep('Page loaded and running', true, basename(__FILE__));
+
+    if (isActionAccessible($guid, $connection2, '/modules/Kreck Bridge/kreck_import.php') == false) {
+        $page->addError(__('You do not have access to this action. An administrator must grant your role the "Import Institution Data" permission.'));
+        return;
+    }
+    $kstep('Permission check passed');
+
+    $kreckImpFile = __DIR__ . '/src/InstitutionImporter.php';
+    if (!is_file($kreckImpFile)) {
+        throw new \RuntimeException('Required file missing: src/InstitutionImporter.php — upload the module\'s src/ folder next to this page.');
+    }
+    require_once $kreckImpFile;
+    $kstep('Importer class loaded', true, 'src/InstitutionImporter.php');
+
+    $importer = new KreckInstitutionImporter(
+        $container->get(Connection::class),
+        $container->get(PasswordPolicy::class),
+        $container->get(PersonalDataFieldSettings::class),
+        $container->get(SettingGateway::class),
+        __DIR__ . '/imports'
+    );
+    $kstep('Importer ready (database + Gibbon services resolved)');
 
 $registry = $importer->typeRegistry();
 $type = $_REQUEST['type'] ?? 'kreck_feeCategories';
@@ -270,4 +320,18 @@ ob_start();
 })();
 </script>
 <?php
-echo ob_get_clean();
+    $kstep('Page rendered');
+    echo ob_get_clean();
+    if ($KRECK_DEBUG) {
+        echo $kreckDiag(null);
+    }
+} catch (\Throwable $kreckE) {
+    while (ob_get_level() > $kreckBaseOb) {
+        ob_end_clean();
+    }
+    echo '<div class="error" style="margin-bottom:10px">'
+        . 'KRECK could not finish loading this page. The step-by-step report below shows exactly where it stopped.'
+        . '</div>';
+    echo $kreckDiag($kreckE);
+    return;
+}
