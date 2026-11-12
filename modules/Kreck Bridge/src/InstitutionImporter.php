@@ -59,6 +59,7 @@ class KreckInstitutionImporter
             ['name' => 'usersStaff',       'label' => 'Staff',                        'group' => 'People',    'source' => 'native'],
             ['name' => 'usersBasic',       'label' => 'Students / Users',             'group' => 'People',    'source' => 'native'],
             ['name' => 'studentEnrolment', 'label' => 'Student Enrolment',            'group' => 'People',    'source' => 'native'],
+            ['name' => 'courseClassEnrolment', 'label' => 'Class Enrolment',          'group' => 'People',    'source' => 'native'],
             ['name' => 'kreck_feeCategories', 'label' => 'Fee Categories',            'group' => 'Finance',   'source' => 'module'],
             ['name' => 'kreck_fees',          'label' => 'Fees',                      'group' => 'Finance',   'source' => 'module'],
         ];
@@ -112,6 +113,22 @@ class KreckInstitutionImporter
         return $cols;
     }
 
+    /** Resolve a gibbonPersonID to its username (for creator fields). */
+    private function personUsername(int $personID): string
+    {
+        if ($personID <= 0) {
+            return '';
+        }
+        try {
+            $pdo = $this->db->getConnection();
+            $stmt = $pdo->prepare("SELECT username FROM gibbonPerson WHERE gibbonPersonID = :id");
+            $stmt->execute([':id' => $personID]);
+            return (string) ($stmt->fetchColumn() ?: '');
+        } catch (\Throwable $e) {
+            return '';
+        }
+    }
+
     /** Fields KRECK fills automatically (not shown in the manual UI). */
     private function isAutoField(ImportType $importType, string $field): bool
     {
@@ -149,6 +166,11 @@ class KreckInstitutionImporter
         $importer->mode = $mode; // 'sync' (update+insert), 'insert', or 'update'
         $importer->readCSVString($csv);
 
+        // Creator fields may resolve by username|email (relationship) or store a
+        // raw gibbonPersonID. Resolve the session user's username once so either
+        // shape of creator column gets a value the engine can accept.
+        $creatorUsername = $this->personUsername($sessionUserID);
+
         // Build columnOrder (indexed by field iteration count) + custom values.
         $columnOrder = [];
         $customValues = [];
@@ -161,7 +183,11 @@ class KreckInstitutionImporter
                 $columnOrder[$fc] = Importer::COLUMN_DATA_FUNCTION;
             } elseif (preg_match('/(Creator|IDUpdate|Updater)$/', $f)) {
                 $columnOrder[$fc] = Importer::COLUMN_DATA_CUSTOM;
-                $customValues[$fc] = (string) $sessionUserID; // creator = current finance/admin user
+                // If the field resolves people by username|email, inject the
+                // username; otherwise inject the raw gibbonPersonID.
+                $hasRel = $importType->getField($f, 'relationship', '') !== '';
+                $customValues[$fc] = ($hasRel && $creatorUsername !== '')
+                    ? $creatorUsername : (string) $sessionUserID;
             } else {
                 $columnOrder[$fc] = Importer::COLUMN_DATA_SKIP;
             }
