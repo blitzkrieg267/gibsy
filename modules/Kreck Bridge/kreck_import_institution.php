@@ -68,11 +68,28 @@ try {
     require_once $kreckImpFile;
     $kstep('Importer class loaded', true, 'src/InstitutionImporter.php');
 
+    // Resolve PersonalDataFieldSettings robustly across Gibbon versions: v31 has
+    // it in the container; v30 does not, so build it from SettingGateway (its only
+    // dependency), and fall back to null if the class is absent.
+    $kreckSettingGateway = $container->get(SettingGateway::class);
+    try {
+        $kreckPdfs = $container->get(PersonalDataFieldSettings::class);
+        $kstep('Personal-data field settings resolved', true, 'from container');
+    } catch (\Throwable $pdfsEx) {
+        if (class_exists(PersonalDataFieldSettings::class)) {
+            $kreckPdfs = new PersonalDataFieldSettings($kreckSettingGateway);
+            $kstep('Personal-data field settings resolved', true, 'built from SettingGateway (v30 fallback)');
+        } else {
+            $kreckPdfs = null;
+            $kstep('Personal-data field settings not available — continuing without', true);
+        }
+    }
+
     $importer = new KreckInstitutionImporter(
         $container->get(Connection::class),
         $container->get(PasswordPolicy::class),
-        $container->get(PersonalDataFieldSettings::class),
-        $container->get(SettingGateway::class),
+        $kreckPdfs,
+        $kreckSettingGateway,
         __DIR__ . '/imports'
     );
     $kstep('Importer ready (database + Gibbon services resolved)');

@@ -33,7 +33,7 @@ class KreckInstitutionImporter
     public function __construct(
         Connection $db,
         PasswordPolicy $passwordPolicy,
-        PersonalDataFieldSettings $personalDataFields,
+        ?PersonalDataFieldSettings $personalDataFields,
         SettingGateway $settingGateway,
         string $moduleImportDir
     ) {
@@ -82,15 +82,38 @@ class KreckInstitutionImporter
         $modulePath = $this->moduleImportDir . '/' . $name . '.yml';
         if (is_file($modulePath)) {
             $data = Yaml::parse(file_get_contents($modulePath));
+            // v30's ImportType constructor has 4 params; v31 adds a 5th
+            // (personalDataFields). Passing the extra arg is harmless on v30
+            // (PHP ignores surplus positional args), so one call works on both.
             return new ImportType($data, $this->passwordPolicy, $this->db, true, $this->personalDataFields);
         }
-        return ImportType::loadImportType(
-            $name,
-            $this->settingGateway,
-            $this->passwordPolicy,
-            $this->personalDataFields,
-            $this->db
-        );
+        // Gibbon's native loader changed signature between versions: v30 is
+        // loadImportType($name, $settingGateway, $passwordPolicy, $pdo) while v31
+        // inserts $personalDataFields before $pdo. Map arguments by PARAMETER NAME
+        // via reflection so the correct values land regardless of position/arity.
+        $available = [
+            'importTypeName'     => $name,
+            'importType'         => $name,
+            'settingGateway'     => $this->settingGateway,
+            'passwordPolicy'     => $this->passwordPolicy,
+            'personalDataFields' => $this->personalDataFields,
+            'pdo'                => $this->db,
+            'connection'         => $this->db,
+            'validateStructure'  => true,
+        ];
+        $ref = new \ReflectionMethod(ImportType::class, 'loadImportType');
+        $callArgs = [];
+        foreach ($ref->getParameters() as $param) {
+            $pn = $param->getName();
+            if (array_key_exists($pn, $available)) {
+                $callArgs[] = $available[$pn];
+            } elseif ($param->isDefaultValueAvailable()) {
+                $callArgs[] = $param->getDefaultValue();
+            } else {
+                $callArgs[] = null;
+            }
+        }
+        return ImportType::loadImportType(...$callArgs);
     }
 
     /**
