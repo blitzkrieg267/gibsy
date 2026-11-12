@@ -73,8 +73,14 @@ try {
     // Upcoming year is picked up, not an empty Current year).
     $selectedYear = $_REQUEST['gibbonSchoolYearID'] ?? null;
     if ($selectedYear === null || $selectedYear === '') {
-        $selectedYear = $builder->defaultYearId();
-        $kstep('School year auto-selected (year with data)', true, (string) $selectedYear);
+        if (method_exists($builder, 'defaultYearId')) {
+            $selectedYear = $builder->defaultYearId();
+            $kstep('School year auto-selected (year with data)', true, (string) $selectedYear);
+        } else {
+            // Old src/ManifestBuilder.php on disk: degrade to the current year
+            // instead of crashing, and flag the mismatch clearly.
+            $kstep('Using current year — upload the matching src/ManifestBuilder.php to auto-select the year with data', false);
+        }
     }
     $limitClasses = isset($_REQUEST['limitClasses']) ? (int) $_REQUEST['limitClasses'] : 0;
 
