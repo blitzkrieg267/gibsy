@@ -17,7 +17,7 @@ $description = 'KRECK SMS↔LMS bridge: exports Gibbon students, staff, cohorts,
 $entryURL    = 'kreck_export.php';
 $type        = 'Additional';   // Installer rejects anything that is not 'Additional'.
 $category    = 'Other';
-$version     = '0.5.00';        // gibbonModule.version is varchar(8).
+$version     = '0.5.01';        // gibbonModule.version is varchar(8).
 $author      = 'KRECK MicroLearn';
 $url         = 'https://krecke.example';
 
@@ -190,6 +190,25 @@ $actionRows[] = [
     'categoryPermissionOther'   => 'N',
 ];
 
+$actionRows[] = [
+    'name'                      => 'Kreck Settings',
+    'precedence'                => 0,
+    'category'                  => 'Bridge',
+    'description'               => 'Edit the Kreck Bridge settings in-app: the Moodle Endpoint URL, export defaults and payroll officer.',
+    'URLList'                   => 'kreck_settings.php,kreck_settingsProcess.php',
+    'entryURL'                  => 'kreck_settings.php',
+    'entrySidebar'              => 'Y',
+    'menuShow'                  => 'Y',
+    'defaultPermissionAdmin'    => 'Y',
+    'defaultPermissionTeacher'  => 'N',
+    'defaultPermissionStudent'  => 'N',
+    'defaultPermissionParent'   => 'N',
+    'defaultPermissionSupport'  => 'N',
+    'categoryPermissionStaff'   => 'Y',
+    'categoryPermissionStudent' => 'N',
+    'categoryPermissionParent'  => 'N',
+    'categoryPermissionOther'   => 'N',
+];
 $actionRows[] = [
     'name'                      => 'Kreck LMS Classes',
     'precedence'                => 0,

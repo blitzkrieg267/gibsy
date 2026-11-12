@@ -103,3 +103,19 @@ INSERT INTO gibbonAction (gibbonModuleID,name,precedence,category,description,UR
  VALUES ((SELECT gibbonModuleID FROM gibbonModule WHERE name='Kreck Bridge'),'Kreck LMS Marks',1,'Bridge','Import the Kreck LMS gradebook export and keep each learner marks on their school record.','kreck_marks.php','kreck_marks.php','Y','Y','Y','Y','N','N','N','Y','N','N','N');end
 INSERT INTO gibbonPermission (gibbonRoleID,gibbonActionID) VALUES ('001',(SELECT gibbonActionID FROM gibbonAction WHERE name='Kreck LMS Marks' AND gibbonModuleID=(SELECT gibbonModuleID FROM gibbonModule WHERE name='Kreck Bridge')));end
 ";
+
+// 0.5.00 -> 0.5.01: in-app Settings page (edit Moodle Endpoint URL + defaults
+// without touching the DB). Also back-fill any setting rows missing on older
+// installs, so the Settings form always has them.
+++$count;
+$sql[$count][0] = '0.5.00';
+$sql[$count][1] = "
+INSERT INTO gibbonAction (gibbonModuleID,name,precedence,category,description,URLList,entryURL,entrySidebar,menuShow,defaultPermissionAdmin,defaultPermissionTeacher,defaultPermissionStudent,defaultPermissionParent,defaultPermissionSupport,categoryPermissionStaff,categoryPermissionStudent,categoryPermissionParent,categoryPermissionOther)
+ VALUES ((SELECT gibbonModuleID FROM gibbonModule WHERE name='Kreck Bridge'),'Kreck Settings',0,'Bridge','Edit the Kreck Bridge settings in-app: Moodle Endpoint URL, export defaults and payroll officer.','kreck_settings.php,kreck_settingsProcess.php','kreck_settings.php','Y','Y','Y','N','N','N','N','Y','N','N','N');end
+INSERT INTO gibbonPermission (gibbonRoleID,gibbonActionID) VALUES ('001',(SELECT gibbonActionID FROM gibbonAction WHERE name='Kreck Settings' AND gibbonModuleID=(SELECT gibbonModuleID FROM gibbonModule WHERE name='Kreck Bridge')));end
+INSERT INTO gibbonSetting (scope,name,nameDisplay,description,value) SELECT 'Kreck Bridge','moodleEndpoint','Moodle Endpoint URL','Base URL of the Kreck LMS (Moodle).','' FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM gibbonSetting WHERE scope='Kreck Bridge' AND name='moodleEndpoint');end
+INSERT INTO gibbonSetting (scope,name,nameDisplay,description,value) SELECT 'Kreck Bridge','defaultPassword','Default Password','Starter password written into the manifest for created Moodle accounts.','Kreck#2026' FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM gibbonSetting WHERE scope='Kreck Bridge' AND name='defaultPassword');end
+INSERT INTO gibbonSetting (scope,name,nameDisplay,description,value) SELECT 'Kreck Bridge','forcePasswordChange','Force Password Change','If Y, imported Moodle users must change their password at first login.','Y' FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM gibbonSetting WHERE scope='Kreck Bridge' AND name='forcePasswordChange');end
+INSERT INTO gibbonSetting (scope,name,nameDisplay,description,value) SELECT 'Kreck Bridge','schoolDomain','School Email Domain','Used to build placeholder emails when a person has no email.','school.invalid' FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM gibbonSetting WHERE scope='Kreck Bridge' AND name='schoolDomain');end
+INSERT INTO gibbonSetting (scope,name,nameDisplay,description,value) SELECT 'Kreck Bridge','payrollOfficer','Payroll Officer','Optional gibbonPersonID nudged by the salary reminder about due/overdue payments.','' FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM gibbonSetting WHERE scope='Kreck Bridge' AND name='payrollOfficer');end
+";
