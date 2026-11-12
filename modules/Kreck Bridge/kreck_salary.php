@@ -9,6 +9,7 @@ Access is finance/admin only (sensitive).
 */
 
 require_once __DIR__ . '/src/SalaryManager.php';
+require_once __DIR__ . '/src/InstitutionImporter.php';
 
 use Gibbon\Contracts\Database\Connection;
 use Gibbon\Services\Format;
@@ -23,9 +24,43 @@ $self = $session->get('absoluteURL') . '/index.php?q=/modules/Kreck Bridge/kreck
 $runURL = $session->get('absoluteURL') . '/index.php?q=/modules/Kreck Bridge/kreck_salary_run.php';
 $kreckAction = $_REQUEST['kreckAction'] ?? '';
 
+// Column labels for the salary template / file-upload header matching.
+$salaryCols = [
+    'staff' => 'Staff', 'amount' => 'Amount', 'frequency' => 'Frequency', 'payDay' => 'Pay Day',
+    'startDate' => 'Start Date', 'endDate' => 'End Date', 'status' => 'Status', 'notes' => 'Notes',
+];
+
+// Blank CSV template download for the salary file-upload path.
+if ($kreckAction === 'template') {
+    header('Content-Type: text/csv; charset=utf-8');
+    header('Content-Disposition: attachment; filename="kreck_salary_template.csv"');
+    echo implode(',', array_map(fn($l) => '"' . $l . '"', array_values($salaryCols))) . "\r\n";
+    exit;
+}
+
 $saveResult = null;
-if ($kreckAction === 'save') {
-    $rows = json_decode($_POST['rowsJson'] ?? '[]', true) ?: [];
+if ($kreckAction === 'save' || $kreckAction === 'saveFile') {
+    $rows = [];
+    if ($kreckAction === 'saveFile' && !empty($_FILES['file']['tmp_name']) && is_uploaded_file($_FILES['file']['tmp_name'])) {
+        // Reuse the importer's file parser, then map headers (label or key) to salary fields.
+        $imp = new KreckInstitutionImporter(
+            $container->get(Connection::class),
+            $container->get(\Gibbon\Data\PasswordPolicy::class),
+            $container->get(\Gibbon\Forms\PersonalDataFieldSettings::class),
+            $container->get(\Gibbon\Domain\System\SettingGateway::class),
+            __DIR__ . '/imports'
+        );
+        $parsed = $imp->parseUploadedFile($_FILES['file']['tmp_name'], $_FILES['file']['name']);
+        $labelToKey = [];
+        foreach ($salaryCols as $k => $label) { $labelToKey[strtolower($label)] = $k; $labelToKey[strtolower($k)] = $k; }
+        foreach ($parsed['rows'] as $r) {
+            $row = [];
+            foreach ($r as $h => $v) { $key = $labelToKey[strtolower(trim($h))] ?? null; if ($key) $row[$key] = $v; }
+            if (!empty($row)) $rows[] = $row;
+        }
+    } else {
+        $rows = json_decode($_POST['rowsJson'] ?? '[]', true) ?: [];
+    }
     $created = 0; $failed = [];
     foreach ($rows as $i => $r) {
         $token = trim($r['staff'] ?? '');
@@ -138,6 +173,15 @@ ob_start();
             <span style="flex:1"></span>
             <button type="submit" class="kbtn" name="kreckAction" value="save"><?php echo __('Save salaries'); ?></button>
         </div>
+    </form>
+
+    <h3 style="margin-top:22px"><?php echo __('…or upload a file'); ?></h3>
+    <form method="post" action="<?php echo htmlspecialchars($self); ?>" enctype="multipart/form-data" style="padding:12px 14px;background:#f8fbfb;border:1px solid #e2e8ee;border-radius:8px">
+        <input type="hidden" name="q" value="/modules/Kreck Bridge/kreck_salary.php">
+        <p class="emphasis small" style="margin-top:0"><?php echo __('Upload a .csv or .xlsx of salary definitions. Columns: Staff, Amount, Frequency, Pay Day, Start Date, End Date, Status, Notes.'); ?>
+           <a href="<?php echo htmlspecialchars($self . '&kreckAction=template'); ?>"><?php echo __('Download blank template'); ?></a>.</p>
+        <input type="file" name="file" accept=".csv,.xlsx,.xls,.ods" required>
+        <button type="submit" class="kbtn" name="kreckAction" value="saveFile" style="margin-left:8px"><?php echo __('Upload salaries'); ?></button>
     </form>
 </div>
 <script>
