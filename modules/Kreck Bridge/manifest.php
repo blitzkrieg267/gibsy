@@ -17,7 +17,7 @@ $description = 'KRECK SMS↔LMS bridge: exports Gibbon students, staff, cohorts,
 $entryURL    = 'kreck_export.php';
 $type        = 'Additional';   // Installer rejects anything that is not 'Additional'.
 $category    = 'Other';
-$version     = '0.2.00';        // gibbonModule.version is varchar(8).
+$version     = '0.3.00';        // gibbonModule.version is varchar(8).
 $author      = 'KRECK MicroLearn';
 $url         = 'https://krecke.example';
 
@@ -28,6 +28,7 @@ $gibbonSetting[] = "INSERT INTO gibbonSetting (scope, name, nameDisplay, descrip
 $gibbonSetting[] = "INSERT INTO gibbonSetting (scope, name, nameDisplay, description, value) VALUES ('Kreck Bridge', 'forcePasswordChange', 'Force Password Change', 'If Y, imported Moodle users must change their password at first login.', 'Y');";
 $gibbonSetting[] = "INSERT INTO gibbonSetting (scope, name, nameDisplay, description, value) VALUES ('Kreck Bridge', 'schoolDomain', 'School Email Domain', 'Used to build deterministic placeholder emails (e.g. <studentID>@students.<domain>) when a person has no email, so the manifest still imports.', 'school.invalid');";
 $gibbonSetting[] = "INSERT INTO gibbonSetting (scope, name, nameDisplay, description, value) VALUES ('Kreck Bridge', 'moodleEndpoint', 'Moodle Endpoint URL', 'Optional. Base URL of the Kreck LMS (Moodle). Reserved for the future live-API leg; not used by the file export.', '');";
+$gibbonSetting[] = "INSERT INTO gibbonSetting (scope, name, nameDisplay, description, value) VALUES ('Kreck Bridge', 'payrollOfficer', 'Payroll Officer', 'Optional. gibbonPersonID of the staff member nudged by the salary reminder CLI about due/overdue payments. Finance staff can also subscribe to the \"Salary Payment Due\" notification event.', '');";
 
 // --- Tables this module owns (CREATE TABLE) ---------------------------------
 // A small log of export batches. Keyed independently of Gibbon core tables.
@@ -40,6 +41,42 @@ $moduleTables[] = "CREATE TABLE `kreckBridgeExport` (
     `counts` TEXT NULL,
     `filename` VARCHAR(255) NULL,
     PRIMARY KEY (`kreckBridgeExportID`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;";
+// Staff-salary record-keeping (recurring definition + per-period payment).
+$moduleTables[] = "CREATE TABLE `kreckSalary` (
+    `kreckSalaryID` INT(12) UNSIGNED ZEROFILL AUTO_INCREMENT,
+    `gibbonPersonID` INT(10) UNSIGNED ZEROFILL NOT NULL,
+    `gibbonSchoolYearID` INT(3) UNSIGNED ZEROFILL NULL,
+    `amount` DECIMAL(13,2) NOT NULL,
+    `currency` VARCHAR(3) NULL,
+    `frequency` ENUM('Monthly','Fortnightly','Weekly','Termly','Annually','Once') NOT NULL DEFAULT 'Monthly',
+    `payDay` INT(2) NULL,
+    `startDate` DATE NOT NULL,
+    `endDate` DATE NULL,
+    `status` ENUM('Active','Suspended','Ended') NOT NULL DEFAULT 'Active',
+    `notes` TEXT NULL,
+    `gibbonPersonIDCreator` INT(10) UNSIGNED ZEROFILL NULL,
+    `timestampCreator` TIMESTAMP NULL DEFAULT NULL,
+    PRIMARY KEY (`kreckSalaryID`), KEY `gibbonPersonID` (`gibbonPersonID`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;";
+$moduleTables[] = "CREATE TABLE `kreckSalaryPayment` (
+    `kreckSalaryPaymentID` INT(14) UNSIGNED ZEROFILL AUTO_INCREMENT,
+    `kreckSalaryID` INT(12) UNSIGNED ZEROFILL NOT NULL,
+    `gibbonPersonID` INT(10) UNSIGNED ZEROFILL NOT NULL,
+    `period` VARCHAR(7) NOT NULL,
+    `dueDate` DATE NULL,
+    `amount` DECIMAL(13,2) NOT NULL,
+    `status` ENUM('Pending','Finalized','Paid') NOT NULL DEFAULT 'Pending',
+    `paymentDate` DATE NULL,
+    `paymentMethod` ENUM('Cash','Cheque','Bank Transfer','Mobile Money','Other') NULL,
+    `proofOfPayment` VARCHAR(255) NULL,
+    `reminderCount` INT(2) NOT NULL DEFAULT 0,
+    `notes` TEXT NULL,
+    `gibbonPersonIDCreator` INT(10) UNSIGNED ZEROFILL NULL,
+    `timestampCreator` TIMESTAMP NULL DEFAULT NULL,
+    PRIMARY KEY (`kreckSalaryPaymentID`),
+    UNIQUE KEY `salary_period` (`kreckSalaryID`,`period`),
+    KEY `status` (`status`), KEY `gibbonPersonID` (`gibbonPersonID`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;";
 
 // --- Actions (INSERT INTO gibbonAction; permissions granted per flag) --------
@@ -83,5 +120,47 @@ $actionRows[] = [
     'categoryPermissionOther'   => 'N',
 ];
 
-// No notification hooks for v1.
+$actionRows[] = [
+    'name'                      => 'Manage Staff Salaries',
+    'precedence'                => 0,
+    'category'                  => 'Payroll',
+    'description'               => 'Record recurring staff salary definitions (amount, frequency, pay day, active window).',
+    'URLList'                   => 'kreck_salary.php',
+    'entryURL'                  => 'kreck_salary.php',
+    'entrySidebar'              => 'Y',
+    'menuShow'                  => 'Y',
+    'defaultPermissionAdmin'    => 'Y',
+    'defaultPermissionTeacher'  => 'N',
+    'defaultPermissionStudent'  => 'N',
+    'defaultPermissionParent'   => 'N',
+    'defaultPermissionSupport'  => 'N',
+    'categoryPermissionStaff'   => 'Y',
+    'categoryPermissionStudent' => 'N',
+    'categoryPermissionParent'  => 'N',
+    'categoryPermissionOther'   => 'N',
+];
+$actionRows[] = [
+    'name'                      => 'Payroll Run',
+    'precedence'                => 1,
+    'category'                  => 'Payroll',
+    'description'               => 'Generate a period\'s salary payments, finalize them, and mark them paid with a proof of payment (receipt + staff notification).',
+    'URLList'                   => 'kreck_salary_run.php,kreck_salary_receipt.php',
+    'entryURL'                  => 'kreck_salary_run.php',
+    'entrySidebar'              => 'Y',
+    'menuShow'                  => 'Y',
+    'defaultPermissionAdmin'    => 'Y',
+    'defaultPermissionTeacher'  => 'N',
+    'defaultPermissionStudent'  => 'N',
+    'defaultPermissionParent'   => 'N',
+    'defaultPermissionSupport'  => 'N',
+    'categoryPermissionStaff'   => 'Y',
+    'categoryPermissionStudent' => 'N',
+    'categoryPermissionParent'  => 'N',
+    'categoryPermissionOther'   => 'N',
+];
+
+// Notification events (in-app bell + email) for payroll. Finance staff subscribe
+// via System Admin → Notification Settings; the mark-paid flow and reminder CLI raise them.
 $hooks = [];
+$hooks[] = "INSERT INTO gibbonNotificationEvent (event, moduleName, actionName, type, scopes, active) VALUES ('Salary Paid', 'Kreck Bridge', 'Payroll Run', 'Additional', 'gibbonPersonID', 'Y');";
+$hooks[] = "INSERT INTO gibbonNotificationEvent (event, moduleName, actionName, type, scopes, active) VALUES ('Salary Payment Due', 'Kreck Bridge', 'Payroll Run', 'Additional', 'gibbonPersonID', 'Y');";
