@@ -64,3 +64,12 @@ INSERT INTO gibbonPermission (gibbonRoleID,gibbonActionID) VALUES ('001',(SELECT
 INSERT INTO gibbonNotificationEvent (event,moduleName,actionName,type,scopes,active) VALUES ('Salary Paid','Kreck Bridge','Payroll Run','Additional','gibbonPersonID','Y');end
 INSERT INTO gibbonNotificationEvent (event,moduleName,actionName,type,scopes,active) VALUES ('Salary Payment Due','Kreck Bridge','Payroll Run','Additional','gibbonPersonID','Y');end
 ";
+
+// 0.3.00 -> 0.4.00: KRECK branding — point site logo + system name at KRECK
+// (only if still the Gibbon defaults, so a school's own branding is preserved).
+++$count;
+$sql[$count][0] = '0.3.00';
+$sql[$count][1] = "
+UPDATE gibbonSetting SET value='themes/Kreck/img/logo.png' WHERE scope='System' AND name='organisationLogo' AND (value LIKE '%Default/img/logo%' OR value='' OR value IS NULL);end
+UPDATE gibbonSetting SET value='KRECK' WHERE scope='System' AND name='systemName' AND value='Gibbon';end
+";

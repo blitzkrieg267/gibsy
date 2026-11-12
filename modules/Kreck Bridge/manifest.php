@@ -17,7 +17,7 @@ $description = 'KRECK SMS↔LMS bridge: exports Gibbon students, staff, cohorts,
 $entryURL    = 'kreck_export.php';
 $type        = 'Additional';   // Installer rejects anything that is not 'Additional'.
 $category    = 'Other';
-$version     = '0.3.00';        // gibbonModule.version is varchar(8).
+$version     = '0.4.00';        // gibbonModule.version is varchar(8).
 $author      = 'KRECK MicroLearn';
 $url         = 'https://krecke.example';
 
@@ -164,3 +164,9 @@ $actionRows[] = [
 $hooks = [];
 $hooks[] = "INSERT INTO gibbonNotificationEvent (event, moduleName, actionName, type, scopes, active) VALUES ('Salary Paid', 'Kreck Bridge', 'Payroll Run', 'Additional', 'gibbonPersonID', 'Y');";
 $hooks[] = "INSERT INTO gibbonNotificationEvent (event, moduleName, actionName, type, scopes, active) VALUES ('Salary Payment Due', 'Kreck Bridge', 'Payroll Run', 'Additional', 'gibbonPersonID', 'Y');";
+
+// KRECK branding: point the site logo + system name at KRECK, but only if still
+// the Gibbon defaults — never clobber a school's own logo/name. (Rebrand is
+// otherwise theme-driven: themes/Kreck css/js/img.)
+$hooks[] = "UPDATE gibbonSetting SET value='themes/Kreck/img/logo.png' WHERE scope='System' AND name='organisationLogo' AND (value LIKE '%Default/img/logo%' OR value='' OR value IS NULL);";
+$hooks[] = "UPDATE gibbonSetting SET value='KRECK' WHERE scope='System' AND name='systemName' AND value='Gibbon';";

@@ -83,3 +83,31 @@ input:focus, select:focus, textarea:focus {
     outline-color: var(--kreck-teal-500);
     border-color: var(--kreck-teal-500);
 }
+
+/* ==========================================================================
+   KRECK debrand — strip Gibbon footer/wordmark, size logo, KRECK footer.
+   (The authoritative removal + "© 2026 Kreck Micro Learn" injection is in
+   js/common.js; these rules prevent any flash and style the result.)
+   ========================================================================== */
+
+/* Hide Gibbon's core footer block (the only div combining these classes). */
+#wrapOuter .border-t.border-gray-300.leading-normal.text-left { display: none !important; }
+
+/* Hide the Gibbon/footer wordmark image wherever it appears. */
+#wrapOuter img[src*="gibbon-white"],
+img[alt^="Logo text"] { display: none !important; }
+
+/* Header logo sizing (KRECK wordmark). */
+#header-logo img { max-height: 46px; width: auto; }
+
+/* KRECK footer injected by common.js. */
+.kreck-footer {
+    text-align: center;
+    color: var(--kreck-teal-700, #0e6b63);
+    font-size: 13px;
+    font-weight: 600;
+    letter-spacing: .2px;
+    padding: 18px 12px 26px;
+    margin-top: 8px;
+    border-top: 1px solid rgba(15, 34, 51, .08);
+}
