@@ -164,10 +164,16 @@ class KreckManifestBuilder
 
         $students = [];
         $studentUserById = []; // gibbonPersonID => manifest username (for enrolments)
+        $studentLinks = [];    // studentid => deep-link back to the Gibbon student profile
         foreach ($studentRows as $s) {
             $raw = $this->studentUsername($s);          // original case -> join key
             $username = strtolower($raw);               // Moodle requires lowercase usernames
             $studentUserById[$s['gibbonPersonID']] = $username;
+            $pid = (int) $s['gibbonPersonID'];
+            $studentLinks[$raw] = [
+                'gibbonPersonID' => $pid,
+                'url' => '/index.php?q=/modules/Students/student_view_details.php&gibbonPersonID=' . $pid,
+            ];
             $students[] = [
                 'username'  => $username,
                 'studentid' => $raw, // the cross-system join key (case preserved)
@@ -235,6 +241,7 @@ class KreckManifestBuilder
 
         $courses = [];
         $courseShortByClassId = [];
+        $courseLinks = [];      // shortname => deep-link back to the Gibbon class (Planner view)
         $categorySeen = [];
         $categories = [];
         foreach ($classRows as $c) {
@@ -255,6 +262,11 @@ class KreckManifestBuilder
             }
             $courseShortByClassId['__shorts'][$short] = true;
             $courseShortByClassId[$c['gibbonCourseClassID']] = $short;
+            $ccid = (int) $c['gibbonCourseClassID'];
+            $courseLinks[$short] = [
+                'gibbonCourseClassID' => $ccid,
+                'url' => '/index.php?q=/modules/Planner/planner.php&viewBy=class&gibbonCourseClassID=' . $ccid,
+            ];
 
             // Readable full name; class sections are usually bare numbers.
             $classLabel = ($c['className'] !== '' && $c['className'] !== null)
@@ -318,6 +330,13 @@ class KreckManifestBuilder
             'students'            => $students,
             'courses'             => $courses,
             'enrolments'          => $enrolments,
+            // Relative Gibbon (KRECK SMS) deep-links, consumed by the Moodle plugin
+            // so it can place "View in KRECK SMS" links. Prefix with the Gibbon base URL.
+            'links'               => [
+                'base_hint' => 'gibbon',
+                'courses'   => $courseLinks,
+                'students'  => $studentLinks,
+            ],
         ];
 
         return $manifest;

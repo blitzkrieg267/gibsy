@@ -17,7 +17,7 @@ $description = 'KRECK SMS↔LMS bridge: exports Gibbon students, staff, cohorts,
 $entryURL    = 'kreck_export.php';
 $type        = 'Additional';   // Installer rejects anything that is not 'Additional'.
 $category    = 'Other';
-$version     = '0.4.00';        // gibbonModule.version is varchar(8).
+$version     = '0.5.00';        // gibbonModule.version is varchar(8).
 $author      = 'KRECK MicroLearn';
 $url         = 'https://krecke.example';
 
@@ -77,6 +77,37 @@ $moduleTables[] = "CREATE TABLE `kreckSalaryPayment` (
     PRIMARY KEY (`kreckSalaryPaymentID`),
     UNIQUE KEY `salary_period` (`kreckSalaryID`,`period`),
     KEY `status` (`status`), KEY `gibbonPersonID` (`gibbonPersonID`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;";
+// Return-leg deep-links from the Kreck LMS (Moodle): one row per class (course)
+// and per activity, stored relative to the Moodle base URL.
+$moduleTables[] = "CREATE TABLE `kreckLink` (
+    `kreckLinkID` INT(12) UNSIGNED ZEROFILL AUTO_INCREMENT,
+    `entityType` ENUM('course','activity','user') NOT NULL,
+    `entityKey` VARCHAR(255) NOT NULL,
+    `subKey` VARCHAR(255) NULL,
+    `moodleID` INT(12) UNSIGNED NULL,
+    `modName` VARCHAR(50) NULL,
+    `moodleRelURL` VARCHAR(500) NOT NULL,
+    `label` VARCHAR(255) NULL,
+    `timestampUpdated` DATETIME NULL,
+    PRIMARY KEY (`kreckLinkID`),
+    UNIQUE KEY `entity_url` (`entityType`,`entityKey`,`moodleRelURL`),
+    KEY `entityKey` (`entityKey`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;";
+// Flat record of Moodle gradebook marks, kept on the school record.
+$moduleTables[] = "CREATE TABLE `kreckMark` (
+    `kreckMarkID` INT(12) UNSIGNED ZEROFILL AUTO_INCREMENT,
+    `entityKey` VARCHAR(255) NOT NULL,
+    `courseShortname` VARCHAR(255) NOT NULL,
+    `item` VARCHAR(255) NOT NULL,
+    `grade` VARCHAR(50) NULL,
+    `gradeMax` VARCHAR(50) NULL,
+    `moodleCourseID` INT(12) UNSIGNED NULL,
+    `exportedAt` VARCHAR(40) NULL,
+    `timestampUpdated` DATETIME NULL,
+    PRIMARY KEY (`kreckMarkID`),
+    UNIQUE KEY `student_item` (`entityKey`,`courseShortname`,`item`),
+    KEY `courseShortname` (`courseShortname`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;";
 
 // --- Actions (INSERT INTO gibbonAction; permissions granted per flag) --------
@@ -150,6 +181,45 @@ $actionRows[] = [
     'menuShow'                  => 'Y',
     'defaultPermissionAdmin'    => 'Y',
     'defaultPermissionTeacher'  => 'N',
+    'defaultPermissionStudent'  => 'N',
+    'defaultPermissionParent'   => 'N',
+    'defaultPermissionSupport'  => 'N',
+    'categoryPermissionStaff'   => 'Y',
+    'categoryPermissionStudent' => 'N',
+    'categoryPermissionParent'  => 'N',
+    'categoryPermissionOther'   => 'N',
+];
+
+$actionRows[] = [
+    'name'                      => 'Kreck LMS Classes',
+    'precedence'                => 0,
+    'category'                  => 'Bridge',
+    'description'               => 'Import the Kreck LMS (Moodle) links file and browse each class and its activities as "Open in KRECK LMS" deep-links.',
+    'URLList'                   => 'kreck_lms.php,kreck_import_links.php',
+    'entryURL'                  => 'kreck_lms.php',
+    'entrySidebar'              => 'Y',
+    'menuShow'                  => 'Y',
+    'defaultPermissionAdmin'    => 'Y',
+    'defaultPermissionTeacher'  => 'Y',
+    'defaultPermissionStudent'  => 'N',
+    'defaultPermissionParent'   => 'N',
+    'defaultPermissionSupport'  => 'N',
+    'categoryPermissionStaff'   => 'Y',
+    'categoryPermissionStudent' => 'N',
+    'categoryPermissionParent'  => 'N',
+    'categoryPermissionOther'   => 'N',
+];
+$actionRows[] = [
+    'name'                      => 'Kreck LMS Marks',
+    'precedence'                => 1,
+    'category'                  => 'Bridge',
+    'description'               => 'Import the Kreck LMS (Moodle) gradebook export and keep each learner\'s marks on their school record.',
+    'URLList'                   => 'kreck_marks.php',
+    'entryURL'                  => 'kreck_marks.php',
+    'entrySidebar'              => 'Y',
+    'menuShow'                  => 'Y',
+    'defaultPermissionAdmin'    => 'Y',
+    'defaultPermissionTeacher'  => 'Y',
     'defaultPermissionStudent'  => 'N',
     'defaultPermissionParent'   => 'N',
     'defaultPermissionSupport'  => 'N',

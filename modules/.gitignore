@@ -62,6 +62,10 @@
 !/User Admin
 !/User Admin/**
 
+# allowlist the KRECK bridge module (ships with this fork)
+!/Kreck Bridge
+!/Kreck Bridge/**
+
 # denylist some files and folders
 # in the module folders
 **/.DS_Store

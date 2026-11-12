@@ -73,3 +73,33 @@ $sql[$count][1] = "
 UPDATE gibbonSetting SET value='themes/Kreck/img/logo.png' WHERE scope='System' AND name='organisationLogo' AND (value LIKE '%Default/img/logo%' OR value='' OR value IS NULL);end
 UPDATE gibbonSetting SET value='KRECK' WHERE scope='System' AND name='systemName' AND value='Gibbon';end
 ";
+
+// 0.4.00 -> 0.5.00: LMS->SMS return leg — deep-link + marks tables, view/import actions.
+++$count;
+$sql[$count][0] = '0.4.00';
+$sql[$count][1] = "
+CREATE TABLE `kreckLink` (
+  `kreckLinkID` INT(12) UNSIGNED ZEROFILL AUTO_INCREMENT,
+  `entityType` ENUM('course','activity','user') NOT NULL,
+  `entityKey` VARCHAR(255) NOT NULL, `subKey` VARCHAR(255) NULL,
+  `moodleID` INT(12) UNSIGNED NULL, `modName` VARCHAR(50) NULL,
+  `moodleRelURL` VARCHAR(500) NOT NULL, `label` VARCHAR(255) NULL,
+  `timestampUpdated` DATETIME NULL,
+  PRIMARY KEY (`kreckLinkID`), UNIQUE KEY `entity_url` (`entityType`,`entityKey`,`moodleRelURL`),
+  KEY `entityKey` (`entityKey`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;end
+CREATE TABLE `kreckMark` (
+  `kreckMarkID` INT(12) UNSIGNED ZEROFILL AUTO_INCREMENT,
+  `entityKey` VARCHAR(255) NOT NULL, `courseShortname` VARCHAR(255) NOT NULL,
+  `item` VARCHAR(255) NOT NULL, `grade` VARCHAR(50) NULL, `gradeMax` VARCHAR(50) NULL,
+  `moodleCourseID` INT(12) UNSIGNED NULL, `exportedAt` VARCHAR(40) NULL, `timestampUpdated` DATETIME NULL,
+  PRIMARY KEY (`kreckMarkID`), UNIQUE KEY `student_item` (`entityKey`,`courseShortname`,`item`),
+  KEY `courseShortname` (`courseShortname`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;end
+INSERT INTO gibbonAction (gibbonModuleID,name,precedence,category,description,URLList,entryURL,entrySidebar,menuShow,defaultPermissionAdmin,defaultPermissionTeacher,defaultPermissionStudent,defaultPermissionParent,defaultPermissionSupport,categoryPermissionStaff,categoryPermissionStudent,categoryPermissionParent,categoryPermissionOther)
+ VALUES ((SELECT gibbonModuleID FROM gibbonModule WHERE name='Kreck Bridge'),'Kreck LMS Classes',0,'Bridge','Import the Kreck LMS links file and browse each class and its activities as Open in KRECK LMS links.','kreck_lms.php,kreck_import_links.php','kreck_lms.php','Y','Y','Y','Y','N','N','N','Y','N','N','N');end
+INSERT INTO gibbonPermission (gibbonRoleID,gibbonActionID) VALUES ('001',(SELECT gibbonActionID FROM gibbonAction WHERE name='Kreck LMS Classes' AND gibbonModuleID=(SELECT gibbonModuleID FROM gibbonModule WHERE name='Kreck Bridge')));end
+INSERT INTO gibbonAction (gibbonModuleID,name,precedence,category,description,URLList,entryURL,entrySidebar,menuShow,defaultPermissionAdmin,defaultPermissionTeacher,defaultPermissionStudent,defaultPermissionParent,defaultPermissionSupport,categoryPermissionStaff,categoryPermissionStudent,categoryPermissionParent,categoryPermissionOther)
+ VALUES ((SELECT gibbonModuleID FROM gibbonModule WHERE name='Kreck Bridge'),'Kreck LMS Marks',1,'Bridge','Import the Kreck LMS gradebook export and keep each learner marks on their school record.','kreck_marks.php','kreck_marks.php','Y','Y','Y','Y','N','N','N','Y','N','N','N');end
+INSERT INTO gibbonPermission (gibbonRoleID,gibbonActionID) VALUES ('001',(SELECT gibbonActionID FROM gibbonAction WHERE name='Kreck LMS Marks' AND gibbonModuleID=(SELECT gibbonModuleID FROM gibbonModule WHERE name='Kreck Bridge')));end
+";
