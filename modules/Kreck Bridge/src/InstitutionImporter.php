@@ -50,13 +50,16 @@ class KreckInstitutionImporter
      */
     public function typeRegistry(): array
     {
+        // Dependency order matters: Staff must load BEFORE Year/Form Groups,
+        // because those reference staff (Head of Year, Tutors). Students load
+        // before Student/Class Enrolment, which reference them.
         return [
             ['name' => 'departments',      'label' => 'Departments / Learning Areas', 'group' => 'Structure', 'source' => 'native'],
+            ['name' => 'usersStaff',       'label' => 'Staff',                        'group' => 'People',    'source' => 'native'],
             ['name' => 'yearGroups',       'label' => 'Year Groups',                  'group' => 'Structure', 'source' => 'native'],
             ['name' => 'formGroups',       'label' => 'Form Groups',                  'group' => 'Structure', 'source' => 'native'],
             ['name' => 'courses',          'label' => 'Courses',                      'group' => 'Teaching',  'source' => 'native'],
             ['name' => 'courseClasses',    'label' => 'Classes',                      'group' => 'Teaching',  'source' => 'native'],
-            ['name' => 'usersStaff',       'label' => 'Staff',                        'group' => 'People',    'source' => 'native'],
             ['name' => 'usersBasic',       'label' => 'Students / Users',             'group' => 'People',    'source' => 'native'],
             ['name' => 'studentEnrolment', 'label' => 'Student Enrolment',            'group' => 'People',    'source' => 'native'],
             ['name' => 'courseClassEnrolment', 'label' => 'Class Enrolment',          'group' => 'People',    'source' => 'native'],
