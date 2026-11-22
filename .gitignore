@@ -43,4 +43,3 @@ node_modules
 
 # Docker environment — never commit real credentials
 .env
-modules/Kreck Bridge/kreck-diagnostics.log

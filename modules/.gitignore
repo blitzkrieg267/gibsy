@@ -69,3 +69,6 @@
 # denylist some files and folders
 # in the module folders
 **/.DS_Store
+
+# Runtime diagnostics log (regenerated at runtime, never versioned)
+/Kreck Bridge/kreck-diagnostics.log
