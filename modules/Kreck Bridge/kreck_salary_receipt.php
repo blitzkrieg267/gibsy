@@ -1,8 +1,11 @@
 <?php
+require_once __DIR__ . '/src/Diagnostics.php';
+KreckBridgeDiagnostics::register(__FILE__);
+
 /*
 Kreck Bridge — Salary payment receipt.
 Rendered printable via report.php (…/report.php?q=/modules/Kreck Bridge/kreck_salary_receipt.php&kreckSalaryPaymentID=ID),
-and also viewable as a normal page. Reuses Gibbon's org settings for the header.
+and also viewable as a normal page. Reuses SMS's org settings for the header.
 */
 
 require_once __DIR__ . '/src/SalaryManager.php';

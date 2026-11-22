@@ -1,8 +1,8 @@
 #
 # KRECK institution-seeding import type: Finance Fee Categories.
-# Gibbon ships no finance import types; this adds one, targeting the real
+# SMS ships no finance import types; this adds one, targeting the real
 # gibbonFinanceFeeCategory table. Loaded by the KRECK guided importer (and
-# usable from Gibbon's native Import From File if copied to the custom folder).
+# usable from SMS's native Import From File if copied to the custom folder).
 # Validated against the live DB schema by Gibbon\Data\ImportType.
 #
 details:

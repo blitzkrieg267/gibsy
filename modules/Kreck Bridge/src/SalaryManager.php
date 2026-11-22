@@ -2,23 +2,23 @@
 /*
 Kreck Bridge — SalaryManager.
 
-Staff-salary record-keeping that extends Gibbon's Finance module without
+Staff-salary record-keeping that extends SMS's Finance module without
 duplicating it. kreckSalary holds the RECURRING definition (amount + frequency
 + pay day + active window); kreckSalaryPayment holds one instance PER PERIOD,
 generated from the active definitions. Proof-of-payment, receipts, payments and
-notifications reuse Gibbon's own machinery (FileUploader/FileHandler,
+notifications reuse SMS's own machinery (FileUploader/FileHandler,
 gibbonPayment, report.php receipts, NotificationSender) — done at the call sites
 that have the container/session. This class is pure DB logic (Connection only),
 so it is shared by the web pages and the CLI reminder job.
 
-No namespace (Gibbon modules are not PSR-4 autoloaded); required directly.
+No namespace (SMS modules are not PSR-4 autoloaded); required directly.
 */
 
 use Gibbon\Contracts\Database\Connection;
 
 class KreckSalaryManager
 {
-    /** @var \PDO The raw PDO handle (Gibbon's Connection wrapper lacks prepare()). */
+    /** @var \PDO The raw PDO handle (SMS's Connection wrapper lacks prepare()). */
     private $db;
 
     public function __construct(Connection $db)
@@ -64,6 +64,7 @@ class KreckSalaryManager
                 FROM kreckSalary s
                 JOIN gibbonPerson p ON p.gibbonPersonID = s.gibbonPersonID
                 WHERE s.status = 'Active'
+                  AND s.approvalStatus = 'Approved'
                   AND s.startDate <= :end
                   AND (s.endDate IS NULL OR s.endDate = '0000-00-00' OR s.endDate >= :start)";
         $stmt = $this->db->prepare($sql);
@@ -184,7 +185,7 @@ class KreckSalaryManager
         return $stmt->fetchAll(\PDO::FETCH_ASSOC);
     }
 
-    /** Resolve a staff member by username, then studentID-style staff id, then exact name. */
+    /** Resolve a staff member by gibbonPersonID, username, email, or exact name. */
     public function resolveStaff(string $token): ?int
     {
         $token = trim($token);
@@ -192,7 +193,7 @@ class KreckSalaryManager
         $stmt = $this->db->prepare(
             "SELECT p.gibbonPersonID FROM gibbonPerson p
              JOIN gibbonRole r ON r.gibbonRoleID = p.gibbonRoleIDPrimary
-             WHERE r.category='Staff' AND (p.username=:t OR p.email=:t OR CONCAT(p.preferredName,' ',p.surname)=:t OR CONCAT(p.firstName,' ',p.surname)=:t)
+             WHERE r.category='Staff' AND (p.gibbonPersonID=:t OR p.username=:t OR p.email=:t OR CONCAT(p.preferredName,' ',p.surname)=:t OR CONCAT(p.firstName,' ',p.surname)=:t)
              LIMIT 1"
         );
         $stmt->execute(['t' => $token]);
@@ -200,13 +201,50 @@ class KreckSalaryManager
         return $row ? (int) $row['gibbonPersonID'] : null;
     }
 
-    /** Upsert a salary definition (by staff + overlapping active window is caller's concern). */
+    /**
+     * All active staff for the searchable pick list. Returns enough detail to
+     * disambiguate people who share a name or have non-obvious usernames:
+     * display name, username, email, job title and staff type.
+     */
+    public function listStaff(): array
+    {
+        $stmt = $this->db->query(
+            "SELECT p.gibbonPersonID, p.username, p.title, p.preferredName, p.surname,
+                    p.email, st.jobTitle, st.type AS staffType
+             FROM gibbonPerson p
+             JOIN gibbonRole r ON r.gibbonRoleID = p.gibbonRoleIDPrimary
+             LEFT JOIN gibbonStaff st ON st.gibbonPersonID = p.gibbonPersonID
+             WHERE r.category='Staff' AND p.status='Full'
+             ORDER BY p.surname, p.preferredName"
+        );
+        return $stmt->fetchAll(\PDO::FETCH_ASSOC) ?: [];
+    }
+
+    /** Normalise a money value to a strict float with exactly 2 decimal places, or null if invalid. */
+    public static function normaliseAmount($value): ?float
+    {
+        if ($value === null) return null;
+        $raw = trim((string) $value);
+        if ($raw === '') return null;
+        // Accept digits, one decimal point and an optional leading sign only.
+        $raw = str_replace([',', ' '], '', $raw);
+        if (!is_numeric($raw)) return null;
+        $amount = round((float) $raw, 2);
+        return $amount > 0 ? $amount : null;
+    }
+
+    /**
+     * Create a salary definition. It is ALWAYS created as approvalStatus
+     * 'Pending': finance enters it, but it is not payroll-eligible until a
+     * school administrator approves it (see approveSalary()). `category` and
+     * `tags` let finance classify the entry for later management.
+     */
     public function saveSalary(array $d, int $userID): int
     {
         $ins = $this->db->prepare(
             "INSERT INTO kreckSalary
-               (gibbonPersonID, amount, currency, frequency, payDay, startDate, endDate, status, notes, gibbonPersonIDCreator, timestampCreator)
-             VALUES (:pid, :amount, :currency, :frequency, :payDay, :startDate, :endDate, :status, :notes, :creator, NOW())"
+               (gibbonPersonID, amount, currency, frequency, payDay, startDate, endDate, status, category, tags, approvalStatus, notes, gibbonPersonIDCreator, timestampCreator)
+             VALUES (:pid, :amount, :currency, :frequency, :payDay, :startDate, :endDate, :status, :category, :tags, 'Pending', :notes, :creator, NOW())"
         );
         $ins->execute([
             'pid'       => $d['gibbonPersonID'],
@@ -217,9 +255,149 @@ class KreckSalaryManager
             'startDate' => $d['startDate'],
             'endDate'   => !empty($d['endDate']) ? $d['endDate'] : null,
             'status'    => $d['status'] ?? 'Active',
+            'category'  => !empty($d['category']) ? trim((string) $d['category']) : null,
+            'tags'      => !empty($d['tags']) ? $this->normaliseTags($d['tags']) : null,
             'notes'     => $d['notes'] ?? null,
             'creator'   => $userID ?: null,
         ]);
         return (int) $this->db->lastInsertId();
+    }
+
+    /**
+     * Currency catalogue (ISO code => [symbol, label]), mirroring the set SMS
+     * offers (Gibbon\Forms\FormFactory::createSelectCurrency). Stored value is
+     * the 3-letter ISO code, so the kreckSalary.currency VARCHAR(3) column fits
+     * and the symbol is derived for display.
+     */
+    public static function currencyCatalog(): array
+    {
+        return [
+            'BWP' => ['P', 'Botswana Pula (P)'], 'USD' => ['$', 'U.S. Dollar ($)'],
+            'EUR' => ['€', 'Euro (€)'], 'GBP' => ['£', 'British Pound (£)'],
+            'ZAR' => ['R', 'South African Rand (R)'], 'NAD' => ['N$', 'Namibian Dollar (N$)'],
+            'ZMW' => ['ZK', 'Zambian Kwacha (ZK)'], 'ZWL' => ['$', 'Zimbabwean Dollar ($)'],
+            'KES' => ['KSh', 'Kenyan Shilling (KSh)'], 'TZS' => ['TSh', 'Tanzania Shilling (TSh)'],
+            'UGX' => ['USh', 'Uganda Shilling (USh)'], 'NGN' => ['₦', 'Nigerian Naira (₦)'],
+            'GHS' => ['GH₵', 'Ghanaian Cedi (GH₵)'], 'MWK' => ['MK', 'Malawian Kwacha (MK)'],
+            'MZN' => ['MT', 'Mozambique Metical (MT)'], 'XAF' => ['FCFA', 'Central African Francs (FCFA)'],
+            'XOF' => ['FCFA', 'West African Francs (FCFA)'], 'EGP' => ['£', 'Egyptian Pound (£)'],
+            'MAD' => ['MAD', 'Moroccan Dirham (MAD)'], 'AED' => ['د.إ', 'U.A.E. Dirham (د.إ)'],
+            'SAR' => ['﷼', 'Saudi Riyal (﷼)'], 'INR' => ['₹', 'Indian Rupee (₹)'],
+            'CNY' => ['¥', 'Chinese Renminbi (¥)'], 'JPY' => ['¥', 'Japanese Yen (¥)'],
+            'AUD' => ['A$', 'Australian Dollar (A$)'], 'CAD' => ['C$', 'Canadian Dollar (C$)'],
+            'NZD' => ['$', 'New Zealand Dollar ($)'], 'CHF' => ['CHF', 'Swiss Franc (CHF)'],
+            'SGD' => ['$', 'Singapore Dollar ($)'], 'HKD' => ['$', 'Hong Kong Dollar ($)'],
+            'BRL' => ['R$', 'Brazilian Real (R$)'],
+        ];
+    }
+
+    /** Symbol for an ISO currency code (falls back to the code itself). */
+    public static function currencySymbol(?string $code): string
+    {
+        $code = strtoupper(trim((string) $code));
+        $cat = self::currencyCatalog();
+        return isset($cat[$code]) ? $cat[$code][0] : ($code !== '' ? $code : '');
+    }
+
+    /** The 3-letter ISO code at the front of an SMS currency setting ("USD $" => "USD"). */
+    public static function currencyCodeFromSetting($setting): string
+    {
+        $tok = strtok(trim((string) $setting), ' ');
+        return $tok !== false ? strtoupper($tok) : '';
+    }
+
+    /** Normalise a comma/semicolon-separated tag string: trim, de-dupe, re-join. */
+    public static function normaliseTags($tags): ?string
+    {
+        if (is_array($tags)) { $parts = $tags; }
+        else { $parts = preg_split('/[,;]+/', (string) $tags); }
+        $clean = [];
+        foreach ($parts as $t) {
+            $t = trim((string) $t);
+            if ($t !== '' && !in_array($t, $clean, true)) { $clean[] = $t; }
+        }
+        return empty($clean) ? null : implode(', ', $clean);
+    }
+
+    /** One salary definition joined to the staff member (for review/approval). */
+    public function getSalary($id): ?array
+    {
+        $stmt = $this->db->prepare(
+            "SELECT s.*, p.title, p.preferredName, p.surname, p.username, p.email
+             FROM kreckSalary s JOIN gibbonPerson p ON p.gibbonPersonID = s.gibbonPersonID
+             WHERE s.kreckSalaryID = :id"
+        );
+        $stmt->execute(['id' => $id]);
+        return $stmt->fetch(\PDO::FETCH_ASSOC) ?: null;
+    }
+
+    /** Salary definitions awaiting a school-admin decision (oldest first). */
+    public function pendingSalaries(): array
+    {
+        $stmt = $this->db->query(
+            "SELECT s.*, p.title, p.preferredName, p.surname, p.username,
+                    c.title AS cTitle, c.preferredName AS cPreferredName, c.surname AS cSurname
+             FROM kreckSalary s
+             JOIN gibbonPerson p ON p.gibbonPersonID = s.gibbonPersonID
+             LEFT JOIN gibbonPerson c ON c.gibbonPersonID = s.gibbonPersonIDCreator
+             WHERE s.approvalStatus = 'Pending'
+             ORDER BY s.timestampCreator ASC, s.kreckSalaryID ASC"
+        );
+        return $stmt->fetchAll(\PDO::FETCH_ASSOC) ?: [];
+    }
+
+    /** Recently decided (approved/rejected) definitions, for the approval log. */
+    public function recentDecisions(int $limit = 12): array
+    {
+        $limit = max(1, min(100, $limit));
+        $stmt = $this->db->prepare(
+            "SELECT s.*, p.title, p.preferredName, p.surname, p.username,
+                    a.title AS aTitle, a.preferredName AS aPreferredName, a.surname AS aSurname
+             FROM kreckSalary s
+             JOIN gibbonPerson p ON p.gibbonPersonID = s.gibbonPersonID
+             LEFT JOIN gibbonPerson a ON a.gibbonPersonID = s.gibbonPersonIDApprover
+             WHERE s.approvalStatus IN ('Approved','Rejected')
+             ORDER BY s.approvalTimestamp DESC
+             LIMIT {$limit}"
+        );
+        $stmt->execute();
+        return $stmt->fetchAll(\PDO::FETCH_ASSOC) ?: [];
+    }
+
+    /** Record a school-admin decision on a pending salary definition. */
+    public function decideSalary($id, string $decision, int $approverID, ?string $note): bool
+    {
+        if (!in_array($decision, ['Approved', 'Rejected'], true)) { return false; }
+        // Only a currently-Pending row can be decided (idempotent + race-safe).
+        $stmt = $this->db->prepare(
+            "UPDATE kreckSalary
+             SET approvalStatus = :decision,
+                 gibbonPersonIDApprover = :approver,
+                 approvalTimestamp = NOW(),
+                 approvalNote = :note
+             WHERE kreckSalaryID = :id AND approvalStatus = 'Pending'"
+        );
+        $stmt->execute([
+            'decision' => $decision,
+            'approver' => $approverID ?: null,
+            'note'     => ($note !== null && $note !== '') ? $note : null,
+            'id'       => $id,
+        ]);
+        return $stmt->rowCount() > 0;
+    }
+
+    /** Distinct non-empty categories already in use, for the entry datalist. */
+    public function salaryCategories(): array
+    {
+        $rows = $this->db->query(
+            "SELECT DISTINCT category FROM kreckSalary WHERE category IS NOT NULL AND category <> '' ORDER BY category"
+        )->fetchAll(\PDO::FETCH_COLUMN) ?: [];
+        return $rows;
+    }
+
+    /** Count of pending definitions (for the approval-page menu badge/summary). */
+    public function pendingCount(): int
+    {
+        return (int) ($this->db->query("SELECT COUNT(*) FROM kreckSalary WHERE approvalStatus='Pending'")->fetchColumn() ?: 0);
     }
 }

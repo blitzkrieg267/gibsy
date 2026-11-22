@@ -1,11 +1,14 @@
 <?php
+require_once __DIR__ . '/src/Diagnostics.php';
+KreckBridgeDiagnostics::register(__FILE__);
+
 /*
 Kreck Bridge — Import Kreck LMS Links.
 
-Upload the links.moodle JSON produced by the Moodle side
+Upload the links.moodle JSON produced by the LMS side
 (local/kreck/export_links.php) and store it in kreckLink, so each class and its
-activities can be opened directly in the Kreck LMS from Gibbon. Relative URLs
-are stored; the Moodle base URL (gibbonSetting 'Kreck Bridge'.moodleEndpoint) is
+activities can be opened directly in the Kreck LMS from SMS. Relative URLs
+are stored; the LMS base URL (gibbonSetting 'Kreck Bridge'.moodleEndpoint) is
 prepended at display time.
 */
 
@@ -53,7 +56,7 @@ ob_start();
 .kreck-lms ul.errs { color:#b42318; font-size:13px; }
 </style>
 <div class="kreck-lms">
-    <p><?php echo __('Upload the links file exported from the Kreck LMS (Moodle): its admin area → KRECK → "Export LMS links to KRECK SMS" → Download. It lists every class this school provisioned and the activities inside them, so you can open them directly in the LMS from here.'); ?></p>
+    <p><?php echo __('Upload the links file exported from the Kreck LMS: its admin area → KRECK → "Export LMS links to KRECK SMS" → Download. It lists every class this school provisioned and the activities inside them, so you can open them directly in the LMS from here.'); ?></p>
 
     <?php if ($parseError !== '') { ?>
         <p class="err"><?php echo htmlspecialchars($parseError); ?></p>

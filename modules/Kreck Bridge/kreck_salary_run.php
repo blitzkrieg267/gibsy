@@ -1,11 +1,14 @@
 <?php
+require_once __DIR__ . '/src/Diagnostics.php';
+KreckBridgeDiagnostics::register(__FILE__);
+
 /*
 Kreck Bridge — Payroll run (per period).
 
 Generate the period's salary payments from the active recurring definitions,
 finalize them, and mark each paid by uploading a proof of payment. The proof is
-stored via Gibbon's file system, a gibbonPayment ledger row is written, a receipt
-is available, and the staff member is notified — all reusing Gibbon's own
+stored via SMS's file system, a gibbonPayment ledger row is written, a receipt
+is available, and the staff member is notified — all reusing SMS's own
 machinery (FileUploader/FileHandler, gibbonPayment, NotificationSender).
 Modelled on modules/Finance/expenseRequest_manage_reimburseProcess.php.
 */
@@ -67,23 +70,27 @@ if ($kreckAction === 'markPaid' && !empty($_POST['kreckSalaryPaymentID'])) {
                 try {
                     $meta = $fileUploader->getFileMetaData($attachment);
                     $container->get(FileHandler::class)->recordFileUpload($meta, 'kreckSalaryPayment', $id, 'proofOfPayment');
-                } catch (\Throwable $e) { /* file registry optional */ }
+                } catch (\Throwable $e) {
+                    KreckBridgeDiagnostics::reportCaught($e, 'record salary proof file');
+                }
             }
         }
 
         // Record payment on the salary row.
         $manager->recordPayment($id, $paymentDate, $method, $attachment, $_POST['amount'] ?? null);
 
-        // Write a gibbonPayment ledger entry (reuse Gibbon's polymorphic payment table).
+        // Write a gibbonPayment ledger entry (reuse SMS's polymorphic payment table).
         try {
             $ins = $connection2->prepare(
                 "INSERT INTO gibbonPayment (foreignTable, foreignTableID, gibbonPersonID, type, status, amount, gateway, timestamp)
                  VALUES ('kreckSalaryPayment', :fid, :pid, 'Salary', 'Complete', :amount, 'Manual', NOW())"
             );
             $ins->execute(['fid' => $id, 'pid' => $pay['gibbonPersonID'], 'amount' => $_POST['amount'] ?? $pay['amount']]);
-        } catch (\Throwable $e) { /* ledger is best-effort */ }
+        } catch (\Throwable $e) {
+            KreckBridgeDiagnostics::reportCaught($e, 'write salary payment ledger');
+        }
 
-        // Notify the staff member (in-app + email), reusing Gibbon's notification system.
+        // Notify the staff member (in-app + email), reusing SMS's notification system.
         try {
             $receiptLink = '/index.php?q=/modules/Kreck Bridge/kreck_salary_receipt.php&kreckSalaryPaymentID=' . $id;
             $text = sprintf(__('Your salary for %1$s (%2$s%3$s) has been paid. View your receipt.'),
@@ -95,7 +102,9 @@ if ($kreckAction === 'markPaid' && !empty($_POST['kreckSalaryPaymentID'])) {
                 $event->pushNotifications($container->get(NotificationGateway::class), $sender);
             }
             $sender->sendNotifications();
-        } catch (\Throwable $e) { /* notification best-effort */ }
+        } catch (\Throwable $e) {
+            KreckBridgeDiagnostics::reportCaught($e, 'send salary payment notification');
+        }
 
         $notice = sprintf(__('Marked paid and notified %s.'), Format::name($pay['title'] ?? '', $pay['preferredName'], $pay['surname'], 'Staff', false));
     }

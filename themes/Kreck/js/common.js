@@ -1,10 +1,10 @@
-/* KRECK theme for Gibbon — shell behaviour.
+/* KRECK theme for SMS — shell behaviour.
    Loaded deferred on every normal/login page (themes/Kreck/js/common.js).
-   1) Debrand the footer: remove Gibbon's footer block + wordmark, inject
+   1) Debrand the footer: remove SMS's footer block + wordmark, inject
       "© 2026 Kreck Micro Learn".
    2) Contrast guard: ensure text never disappears by giving any element whose
       text has too little contrast with its effective background a contrasting
-      colour (dark or white). Careful around Alpine.js / htmx. No CSP in Gibbon,
+      colour (dark or white). Careful around Alpine.js / htmx. No CSP in SMS,
       so inline styles set via the DOM are unrestricted. */
 (function () {
     'use strict';
@@ -12,7 +12,7 @@
 
     // ---------------------------------------------------------------- Footer.
     function debrandFooter() {
-        // Remove the Gibbon wordmark image(s).
+        // Remove the SMS wordmark image(s).
         document.querySelectorAll('img[src*="gibbon-white"], img[alt^="Logo text"]').forEach(function (img) {
             img.remove();
         });
@@ -21,7 +21,7 @@
         var footer = link
             ? link.closest('div.border-t, div[class*="border-t"]')
             : document.querySelector('#wrapOuter .border-t.border-gray-300.leading-normal');
-        // Inject the KRECK footer once, then REMOVE the Gibbon footer entirely
+        // Inject the KRECK footer once, then REMOVE the SMS footer entirely
         // (so no gibbonedu.org links remain anywhere in the DOM).
         if (!document.querySelector('.kreck-footer')) {
             var f = document.createElement('div');
@@ -31,6 +31,44 @@
             else (document.getElementById('wrapOuter') || document.body).appendChild(f);
         }
         if (footer) footer.remove();
+    }
+
+    // ------------------------------------------------- Login/welcome page tag.
+    // The logged-out index renders the username/password form (#loginForm).
+    // Flag <body> so the theme CSS can present a modern KRECK login/welcome
+    // without touching Gibbon's markup or the form's Alpine behaviour.
+    function tagLogin() {
+        var isLogin = !!document.getElementById('loginForm');
+        document.body.classList.toggle('kreck-login', isLogin);
+    }
+
+    // ------------------------------------------- Calendar "Add lesson" entry.
+    // On Gibbon's Planner/calendar page, inject a KRECK "Add lesson" button that
+    // deep-links into the stepped kreck_planner_add.php form with the current
+    // date (and class) prefilled. This is the "add from the calendar itself"
+    // entry point; the conventional Gibbon add-plan flow is left untouched.
+    function injectPlannerAddButton() {
+        var q = decodeURIComponent(location.search || '');
+        if (q.indexOf('/modules/Planner/planner.php') < 0) return;
+        if (document.getElementById('kreckAddLesson')) return;
+        var content = document.getElementById('content-inner') || document.getElementById('content');
+        if (!content) return;
+        var params = new URLSearchParams(location.search);
+        var date = params.get('date') || '';
+        var ccid = params.get('gibbonCourseClassID') || '';
+        var href = location.pathname + '?q=' + encodeURIComponent('/modules/Kreck Bridge/kreck_planner_add.php')
+            + (date ? '&date=' + encodeURIComponent(date) : '')
+            + (ccid ? '&gibbonCourseClassID=' + encodeURIComponent(ccid) : '');
+        var bar = document.createElement('div');
+        bar.id = 'kreckAddLesson';
+        bar.style.cssText = 'margin:0 0 12px;display:flex;justify-content:flex-end;';
+        var a = document.createElement('a');
+        a.href = href;
+        a.textContent = '＋ Add lesson';
+        a.style.cssText = 'display:inline-flex;align-items:center;gap:.4rem;background:#0e9f9a;color:#fff;'
+            + 'font-weight:700;border-radius:999px;padding:.5rem 1.1rem;text-decoration:none;box-shadow:0 6px 16px rgba(14,159,154,.3);';
+        bar.appendChild(a);
+        content.insertBefore(bar, content.firstChild);
     }
 
     // --------------------------------------------------------- Contrast guard.
@@ -100,7 +138,9 @@
     function pass() {
         if (observer) observer.disconnect();
         try {
+            tagLogin();
             debrandFooter();
+            injectPlannerAddButton();
             var all = document.body.getElementsByTagName('*');
             // snapshot length (live collection) and iterate
             for (var i = 0, n = all.length; i < n; i++) fixEl(all[i]);

@@ -1,0 +1,89 @@
+#
+# KRECK institution import type: optional LMS assignment plans.
+# This custom table is used only where SMS has no native assignment-plan
+# equivalent; class, year, room, and timetable data reuse SMS core tables.
+#
+details:
+    type: kreck_lmsAssignmentPlans
+    category: Teaching (KRECK)
+    name: Teaching - LMS Assignment Plans
+    table: kreckLmsAssignmentPlan
+    modes: { update: true, insert: true, export: true }
+access:
+    module: Kreck Bridge
+    action: Import Institution Data
+primaryKey: kreckLmsAssignmentPlanID
+uniqueKeys:
+    - [ gibbonCourseClassID, sourceRef ]
+table:
+    gibbonSchoolYearID:
+        name: "School Year"
+        desc: "School year name. Must already exist."
+        args: { filter: schoolyear, required: true, custom: true }
+        relationship: { table: gibbonSchoolYear, key: gibbonSchoolYearID, field: name }
+    gibbonCourseID:
+        name: "Course Short Name"
+        desc: "Course short name for this year. Must already exist."
+        args: { filter: string, required: true, custom: true }
+        relationship: { table: gibbonCourse, key: gibbonCourseID, field: [ nameShort, gibbonSchoolYearID ] }
+    gibbonCourseClassID:
+        name: "Class Short Name"
+        desc: "Class short name within the selected course. Must already exist."
+        args: { filter: string, required: true, custom: true }
+        relationship: { table: gibbonCourseClass, key: gibbonCourseClassID, field: [ nameShort, gibbonCourseID ] }
+    sourceRef:
+        name: "Plan Reference"
+        desc: "Stable unique reference for this planned assignment within its class."
+        args: { filter: string, required: true }
+    sectionNumber:
+        name: "LMS Section Number"
+        desc: "LMS course section number (0 is the general section)."
+        args: { filter: numeric, required: true }
+    activityName:
+        name: "Assignment Name"
+        desc: "Name shown to students in LMS."
+        args: { filter: string, required: true }
+    description:
+        name: "Assignment Description"
+        desc: "Optional plain-text description."
+        args: { filter: string, required: false }
+    openDate:
+        name: "Opens Date"
+        desc: "Optional. Use with Opens Time."
+        args: { filter: date, required: false }
+    openTime:
+        name: "Opens Time"
+        desc: "Optional 24-hour time. Use with Opens Date."
+        args: { filter: time, required: false }
+    dueDate:
+        name: "Due Date"
+        desc: "Required. Enter YYYY-MM-DD."
+        args: { filter: date, required: true }
+    dueTime:
+        name: "Due Time"
+        desc: "Required. Enter 24-hour HH:MM; the SMS site timezone is used."
+        args: { filter: time, required: true }
+    cutoffDate:
+        name: "Cutoff Date"
+        desc: "Optional. Use with Cutoff Time."
+        args: { filter: date, required: false }
+    cutoffTime:
+        name: "Cutoff Time"
+        desc: "Optional 24-hour time. Use with Cutoff Date."
+        args: { filter: time, required: false }
+    gradeMax:
+        name: "Maximum Grade"
+        desc: "Positive numeric maximum grade for the LMS assignment."
+        args: { filter: decimal, required: true }
+    active:
+        name: "Active"
+        desc: "Y or N. Only active plans are sent to LMS."
+        args: { filter: yesno, required: true, custom: true }
+    timestampCreated:
+        name: "Created Timestamp"
+        desc: ""
+        args: { filter: timestamp, function: timestamp }
+    timestampUpdated:
+        name: "Updated Timestamp"
+        desc: ""
+        args: { filter: timestamp, function: timestamp }

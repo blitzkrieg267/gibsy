@@ -2,19 +2,19 @@
 /*
 Kreck Bridge — KreckLinkStore.
 
-Stores and queries the return-leg data from the Kreck LMS (Moodle):
-  - kreckLink : deep-links back into Moodle for each provisioned class
-                (course) and its activities, so Gibbon can offer
+Stores and queries the return-leg data from the Kreck LMS:
+  - kreckLink : deep-links back into LMS for each provisioned class
+                (course) and its activities, so SMS can offer
                 "Open in KRECK LMS" links.
-  - kreckMark : a flat record of Moodle gradebook marks keyed by the shared
+  - kreckMark : a flat record of LMS gradebook marks keyed by the shared
                 studentID + course shortname, kept on the school record.
 
-Links are stored RELATIVE; the Moodle base URL (gibbonSetting
+Links are stored RELATIVE; the LMS base URL (gibbonSetting
 'Kreck Bridge'.moodleEndpoint) is prepended at display time, so moving the
 LMS never invalidates the stored data.
 
-No namespace (Gibbon modules are not PSR-4 autoloaded); required directly.
-Uses the raw PDO handle Gibbon exposes as $connection2, matching ManifestBuilder.
+No namespace (SMS modules are not PSR-4 autoloaded); required directly.
+Uses the raw PDO handle SMS exposes as $connection2, matching ManifestBuilder.
 */
 
 class KreckLinkStore

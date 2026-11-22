@@ -9,20 +9,41 @@
    ========================================================================== */
 
 :root {
-    --kreck-slate-900: #0f2233;
-    --kreck-slate-800: #14384a;
-    --kreck-teal-700:  #0e6b63;
-    --kreck-teal-600:  #0e9f9a;
-    --kreck-teal-500:  #14b8a6;
-    --kreck-amber-500: #f59e0b;
-    --kreck-ink:       #0f1e2e;
+    /* KRECK "Overstory" palette — organic/editorial: deep-olive ink, warm cream
+       canvas, lime-chartreuse accent and warm gold. (Variable names kept from
+       the earlier slate/teal skin so every rule re-skins from here.) */
+    --kreck-slate-900: #10150d;   /* deepest olive (app stage, hero)            */
+    --kreck-slate-800: #20301a;   /* mid olive (gradient depth)                 */
+    --kreck-teal-700:  #42571d;   /* deep leaf-green (button hover / deep accent)*/
+    --kreck-teal-600:  #52701f;   /* leaf-green (primary buttons; white text ok)*/
+    --kreck-teal-500:  #c4dc52;   /* lime-chartreuse (focus ring, bright accent)*/
+    --kreck-amber-500: #e6b765;   /* warm gold (secondary accent)               */
+    --kreck-ink:       #10150d;   /* deep-olive ink                             */
+    --kreck-cream:     #f6f8f0;   /* warm off-white canvas                      */
+    --kreck-sage:      #edf1e6;   /* pale sage                                  */
+    --kreck-lime:      #c4dc52;
+    --kreck-gold:      #e6b765;
 }
 
-/* --- Page background: replace Gibbon's purple gradient with KRECK slate/teal.
-   The body carries a `.body-gradient-<colour>` class driven by themeColour;
-   target every variant so the skin holds whatever accent is selected. -------- */
+/* --- Page background: a warm deep-olive stage (replaces Gibbon's purple /
+   the old slate), with a soft lime + gold glow. The body carries a
+   `.body-gradient-<colour>` class driven by themeColour; target every variant
+   so the skin holds whatever accent is selected. --------------------------- */
 [class*="body-gradient-"] {
-    background: linear-gradient(135deg, #0f2233 0%, #14384a 55%, #0e6b63 100%) no-repeat fixed !important;
+    background:
+      radial-gradient(1100px 600px at 95% -10%, rgba(196, 220, 82, .16), transparent 60%),
+      radial-gradient(760px 520px at -8% 110%, rgba(230, 183, 101, .12), transparent 60%),
+      linear-gradient(135deg, #10150d 0%, #20301a 58%, #2d3d17 100%) no-repeat fixed !important;
+}
+
+/* --- Editorial serif display headings (the Overstory look): pair a serif for
+   headings with Gibbon's sans body. Georgia is web-safe (no web-font load). -- */
+#content h1, #content h2, #content h3,
+.kreck-home h1, .kreck-home h2, .kreck-home .kh-section-title,
+.kbuild h3, .kpl h3, .kapp h3, .ksal h3,
+body.kreck-login #content h2 {
+    font-family: Georgia, 'Times New Roman', Times, serif !important;
+    letter-spacing: -.01em;
 }
 
 /* --- Top banner / brand area: keep text crisp on the slate. ----------------- */
@@ -78,6 +99,47 @@ a:not(.button):hover {
 .border-b-2.border-indigo-600,
 .border-b-2.border-purple-600 { border-color: var(--kreck-teal-600) !important; }
 
+/* ==========================================================================
+   Hover / active TEXT contrast (bug fix).
+   The teal retune above repaints Gibbon's indigo/purple hover and active
+   BACKGROUNDS to teal, but Gibbon never sets a matching text colour for those
+   states — so a hovered menu/dropdown item ends up teal-on-teal (or dark
+   text on the darkish teal), i.e. the label disappears. Force a guaranteed
+   readable light text colour on exactly the states we repainted, and drag the
+   row's descendant text, icons and SVG strokes along with it. Scoped to the
+   same indigo/purple utilities we already retune, so nothing else is touched.
+   This covers Gibbon v30's top-nav flyout menu rows, action buttons and any
+   hover:bg-* / active accent surface. Loaded after core, so it wins. -------- */
+.hover\:bg-indigo-500:hover, .hover\:bg-indigo-600:hover,
+.hover\:bg-indigo-700:hover, .hover\:bg-indigo-800:hover,
+.hover\:bg-purple-500:hover, .hover\:bg-purple-600:hover,
+.hover\:bg-purple-700:hover, .hover\:bg-purple-800:hover {
+    background-color: var(--kreck-teal-700) !important;
+    color: #ffffff !important;
+}
+.hover\:bg-indigo-500:hover *, .hover\:bg-indigo-600:hover *,
+.hover\:bg-indigo-700:hover *, .hover\:bg-indigo-800:hover *,
+.hover\:bg-purple-500:hover *, .hover\:bg-purple-600:hover *,
+.hover\:bg-purple-700:hover *, .hover\:bg-purple-800:hover * {
+    color: #ffffff !important;
+    fill: currentColor !important;
+}
+
+/* Persistent accent backgrounds we turned teal (the active/current menu item,
+   a selected row, the cookie-consent bar's bg-indigo-600) likewise need a
+   light foreground so their text and links stay legible on teal. */
+.bg-indigo-500, .bg-indigo-600, .bg-indigo-700, .bg-indigo-800,
+.bg-purple-600, .bg-purple-700, .bg-purple-800 {
+    color: #ffffff !important;
+}
+.bg-indigo-500 a, .bg-indigo-600 a, .bg-indigo-700 a, .bg-indigo-800 a,
+.bg-purple-600 a, .bg-purple-700 a, .bg-purple-800 a,
+.bg-indigo-500 svg, .bg-indigo-600 svg, .bg-indigo-700 svg, .bg-indigo-800 svg,
+.bg-purple-600 svg, .bg-purple-700 svg, .bg-purple-800 svg {
+    color: #ffffff !important;
+    fill: currentColor !important;
+}
+
 /* --- Focus rings: teal, for a consistent KRECK feel. ----------------------- */
 input:focus, select:focus, textarea:focus {
     outline-color: var(--kreck-teal-500);
@@ -111,3 +173,79 @@ img[alt^="Logo text"] { display: none !important; }
     margin-top: 8px;
     border-top: 1px solid rgba(15, 34, 51, .08);
 }
+
+/* ==========================================================================
+   KRECK modern login / welcome page.
+   The logged-out index (welcome text + username/password form #loginForm) is
+   tagged `body.kreck-login` by js/common.js. These rules re-present it as a
+   modern KRECK experience — a deep-slate stage with teal/amber glow, a centered
+   column, elevated rounded cards and teal accents — to match the KRECK LMS
+   welcome, WITHOUT altering Gibbon markup or the login form's Alpine behaviour.
+   Everything is scoped to body.kreck-login, so signed-in pages are untouched.
+   ========================================================================== */
+
+/* Deep-olive stage with lime + gold glow (the Overstory hero look). */
+body.kreck-login {
+    background:
+      radial-gradient(900px 520px at 92% -8%, rgba(196, 220, 82, .26), transparent 60%),
+      radial-gradient(640px 440px at -6% 112%, rgba(230, 183, 101, .18), transparent 60%),
+      linear-gradient(135deg, #0c1108 0%, #10150d 52%, #1d2a12 100%) no-repeat fixed !important;
+}
+
+/* Let the slate stage fill the whole viewport: Gibbon's outer wrappers carry
+   their own light background, so clear them (login only) and the cards float. */
+body.kreck-login #wrapOuter,
+body.kreck-login #wrap,
+body.kreck-login #content-wrap { background: transparent !important; }
+
+/* Centered column + a little breathing room. */
+body.kreck-login #content-wrap {
+    max-width: 1060px;
+    margin-left: auto;
+    margin-right: auto;
+}
+body.kreck-login #wrapOuter { padding-bottom: 3rem; }
+
+/* Centered KRECK brand lockup at the top. */
+body.kreck-login #header { justify-content: center; }
+body.kreck-login #header-logo img { max-height: 60px; }
+
+/* Welcome panel → elevated rounded card with KRECK typography. */
+body.kreck-login #content {
+    border-radius: 22px !important;
+    box-shadow: 0 24px 60px rgba(6, 14, 22, .42) !important;
+    border: 1px solid rgba(255, 255, 255, .10) !important;
+    padding: 2rem 2.25rem !important;
+}
+body.kreck-login #content h2 {
+    color: var(--kreck-ink) !important;
+    font-weight: 800;
+    letter-spacing: -.01em;
+    font-size: clamp(1.4rem, 3vw, 1.75rem);
+    margin-bottom: .4rem;
+}
+body.kreck-login #content h2 + p,
+body.kreck-login #content > div > p { color: #51606d; line-height: 1.6; }
+
+/* The username/password form → its own crisp white card. */
+body.kreck-login #loginForm {
+    background: #ffffff;
+    border: 1px solid rgba(15, 34, 51, .10);
+    border-radius: 18px;
+    padding: 1.35rem 1.35rem 1.15rem;
+    box-shadow: 0 18px 44px rgba(6, 14, 22, .32);
+}
+body.kreck-login #loginForm input[type="text"],
+body.kreck-login #loginForm input[type="password"] {
+    background: #f7fafb;
+    border: 1px solid rgba(15, 34, 51, .16);
+}
+body.kreck-login #loginForm input[type="submit"],
+body.kreck-login #loginForm button[type="submit"] {
+    border-radius: 999px !important;
+    font-weight: 700;
+    letter-spacing: .01em;
+}
+
+/* Public cards (admissions/register/etc.) on the welcome page → match. */
+body.kreck-login #content .rounded.bg-white { border-radius: 14px !important; }

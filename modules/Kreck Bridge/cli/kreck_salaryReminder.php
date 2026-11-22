@@ -5,7 +5,7 @@ Kreck Bridge — Salary reminder + recurrence CLI (module-contained).
 Run on a schedule (cron) to keep payroll steady:
   1. With --generate, auto-generate the current period's salary payments from the
      active recurring definitions (idempotent), so recurrence is hands-off.
-  2. Remind finance of overdue / due-soon payments via Gibbon's notification
+  2. Remind finance of overdue / due-soon payments via SMS's notification
      system (in-app bell + email), bumping each payment's reminder count.
 
 Server shell (classic cron):
@@ -13,7 +13,7 @@ Server shell (classic cron):
 Web-cron (shared hosting), using the System Admin remote CLI key:
     https://your-gibbon/modules/Kreck%20Bridge/cli/kreck_salaryReminder.php?remoteCLIKey=KEY&generate=Y
 
-Reuses Gibbon core only; no custom mail transport or scheduler.
+Reuses SMS core only; no custom mail transport or scheduler.
 */
 
 require __DIR__ . '/../../../gibbon.php';          // modules/Kreck Bridge/cli -> gibbon root

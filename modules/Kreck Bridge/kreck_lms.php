@@ -1,12 +1,13 @@
 <?php
+require_once __DIR__ . '/src/Diagnostics.php';
+KreckBridgeDiagnostics::register(__FILE__);
+
 /*
 Kreck Bridge — Kreck LMS Classes.
 
-Browse the classes (and their activities) that live in the Kreck LMS (Moodle),
-as imported from the links file. Each class and activity is an "Open in KRECK
-LMS" deep-link, built from the stored relative URL + the Moodle base URL
-(gibbonSetting 'Kreck Bridge'.moodleEndpoint). This is the SMS-side view of the
-return leg; the pipeline always starts at Gibbon.
+Browse LMS classes and activities imported from the links file, and review
+signed LMS change events. Links use the configured LMS base URL; change
+events never modify SMS's SIS records automatically.
 */
 
 require_once __DIR__ . '/src/KreckLinkStore.php';
@@ -16,12 +17,55 @@ if (isActionAccessible($guid, $connection2, '/modules/Kreck Bridge/kreck_lms.php
     return;
 }
 
+$requiredTables = ['kreckLink', 'kreckSyncEvent'];
+$tableCheck = $connection2->prepare(
+    'SELECT COUNT(*) FROM information_schema.tables
+     WHERE table_schema = DATABASE() AND table_name = :tableName'
+);
+$missingTables = [];
+foreach ($requiredTables as $tableName) {
+    $tableCheck->execute(['tableName' => $tableName]);
+    if ((int) $tableCheck->fetchColumn() === 0) {
+        $missingTables[] = $tableName;
+    }
+}
+
+if (!empty($missingTables)) {
+    $exception = new \RuntimeException('Required tables are missing: ' . implode(', ', $missingTables));
+    $reference = KreckBridgeDiagnostics::reportCaught($exception, 'LMS classes schema preflight');
+    $page->addError(
+        'KRECK LMS Classes cannot load because these tables are missing: '
+        . implode(', ', $missingTables)
+        . '. Go to System Admin > Manage Modules and update Kreck Bridge. Diagnostic reference: '
+        . $reference
+        . '.'
+    );
+    return;
+}
+
 $self = $session->get('absoluteURL') . '/index.php?q=/modules/Kreck Bridge/kreck_lms.php';
 $importURL = $session->get('absoluteURL') . '/index.php?q=/modules/Kreck Bridge/kreck_import_links.php';
 
 $page->breadcrumbs->add(__('Kreck LMS Classes'));
 
-// Moodle base URL for building absolute "Open in KRECK LMS" links.
+$reviewMessage = '';
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && !empty($_POST['reviewEventID'])) {
+    $eventId = (int) $_POST['reviewEventID'];
+    $review = $connection2->prepare(
+        "UPDATE kreckSyncEvent
+         SET reviewStatus='Reviewed', gibbonPersonIDReviewer=:personID, reviewedAt=NOW()
+         WHERE kreckSyncEventID=:eventID AND reviewStatus='Pending'"
+    );
+    $review->execute([
+        'personID' => (int) ($session->get('gibbonPersonID') ?? 0),
+        'eventID' => $eventId,
+    ]);
+    $reviewMessage = $review->rowCount() > 0
+        ? __('Change marked as reviewed.')
+        : __('That change was already reviewed or no longer exists.');
+}
+
+// LMS base URL for building absolute "Open in KRECK LMS" links.
 $moodleBase = '';
 $sres = $connection2->prepare("SELECT value FROM gibbonSetting WHERE scope='Kreck Bridge' AND name='moodleEndpoint'");
 $sres->execute();
@@ -29,6 +73,15 @@ $moodleBase = rtrim((string) ($sres->fetchColumn() ?: ''), '/');
 
 $store = new KreckLinkStore($connection2);
 $byClass = $store->linksByClass();
+$eventQuery = $connection2->prepare(
+    'SELECT kreckSyncEventID, eventType, entityType, entityID, action, payload, receivedAt, reviewStatus
+     FROM kreckSyncEvent ORDER BY receivedAt DESC LIMIT 50'
+);
+$eventQuery->execute();
+$syncEvents = $eventQuery->fetchAll(\PDO::FETCH_ASSOC) ?: [];
+$pendingEvents = count(array_filter($syncEvents, static function ($event) {
+    return $event['reviewStatus'] === 'Pending';
+}));
 
 /** Build an absolute LMS URL from a stored relative one. */
 $abs = function (string $rel) use ($moodleBase) {
@@ -55,8 +108,45 @@ ob_start();
 .kreck-lms a.open { color:#0e6b63; font-weight:600; font-size:13px; text-decoration:none; white-space:nowrap; }
 .kreck-lms a.open:hover { text-decoration:underline; }
 .kreck-lms .empty { color:#64748b; }
+.kreck-lms .sync-inbox { margin:20px 0 24px; padding:16px; border:1px solid #d5e5e3; border-radius:10px; background:#f7fbfa; }
+.kreck-lms .sync-event { display:flex; align-items:center; justify-content:space-between; gap:14px; padding:10px 0; border-top:1px solid #e4eeec; }
+.kreck-lms .sync-event:first-of-type { border-top:0; }
+.kreck-lms .sync-event .meta { color:#536879; font-size:13px; }
+.kreck-lms .sync-event form { margin:0; }
 </style>
 <div class="kreck-lms">
+    <?php if ($reviewMessage !== ''): ?>
+        <div class="<?php echo strpos($reviewMessage, 'already') === false ? 'success' : 'warning'; ?>" role="status"><?php echo htmlspecialchars($reviewMessage); ?></div>
+    <?php endif; ?>
+    <section class="sync-inbox" aria-labelledby="sync-inbox-title">
+        <h3 id="sync-inbox-title"><?php echo __('LMS change inbox'); ?> (<?php echo $pendingEvents; ?> <?php echo __('pending review'); ?>)</h3>
+        <p><?php echo __('LMS changes are recorded here for review. They do not automatically modify SMS records.'); ?></p>
+        <?php if (empty($syncEvents)): ?>
+            <p class="empty"><?php echo __('No LMS change events have been received.'); ?></p>
+        <?php else: ?>
+            <?php foreach ($syncEvents as $event): ?>
+                <div class="sync-event">
+                    <div class="meta">
+                        <strong><?php echo htmlspecialchars(ucfirst((string) $event['action']) . ' ' . (string) $event['entityType']); ?></strong>
+                        #<?php echo htmlspecialchars((string) $event['entityID']); ?>
+                        <?php if (!empty($event['eventType'])): ?>
+                            <span>— <?php echo htmlspecialchars((string) $event['eventType']); ?></span>
+                        <?php endif; ?>
+                        <br><?php echo htmlspecialchars((string) $event['receivedAt']); ?>
+                        <span> · <?php echo htmlspecialchars((string) $event['reviewStatus']); ?></span>
+                    </div>
+                    <?php if ($event['reviewStatus'] === 'Pending'): ?>
+                        <form method="post" action="<?php echo htmlspecialchars($self); ?>">
+                            <input type="hidden" name="q" value="/modules/Kreck Bridge/kreck_lms.php">
+                            <input type="hidden" name="reviewEventID" value="<?php echo (int) $event['kreckSyncEventID']; ?>">
+                            <button type="submit" class="kbtn ghost"><?php echo __('Mark reviewed'); ?></button>
+                        </form>
+                    <?php endif; ?>
+                </div>
+            <?php endforeach; ?>
+        <?php endif; ?>
+    </section>
+
     <div class="bar">
         <span class="emphasis small"><?php echo sprintf(__('%s classes from the Kreck LMS.'), count($byClass)); ?></span>
         <span style="flex:1"></span>
@@ -64,11 +154,11 @@ ob_start();
     </div>
 
     <?php if ($moodleBase === '') { ?>
-        <div class="warn"><?php echo __('No Kreck LMS (Moodle) base URL is set, so links below are shown relative. Set it in System Admin → Third Party / module settings: "Kreck Bridge" → Moodle Endpoint URL, to make them click-through.'); ?></div>
+        <div class="warn"><?php echo __('No Kreck LMS base URL is set, so links below are shown relative. Set it in System Admin → Third Party / module settings: "Kreck Bridge" → LMS Endpoint URL, to make them click-through.'); ?></div>
     <?php } ?>
 
     <?php if (empty($byClass)) { ?>
-        <p class="empty"><?php echo __('No LMS classes yet. Export the links file from Moodle and import it here to get started.'); ?></p>
+        <p class="empty"><?php echo __('No LMS classes yet. Export the links file from LMS and import it here to get started.'); ?></p>
     <?php } else { ?>
         <?php foreach ($byClass as $shortname => $data) {
             $courseRel = $data['course']['moodleRelURL'] ?? '';

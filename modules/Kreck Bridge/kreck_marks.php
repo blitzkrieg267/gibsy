@@ -1,10 +1,13 @@
 <?php
+require_once __DIR__ . '/src/Diagnostics.php';
+KreckBridgeDiagnostics::register(__FILE__);
+
 /*
 Kreck Bridge — Kreck LMS Marks.
 
-Import the Moodle gradebook export (local/kreck/export_marks.php, JSON or CSV)
+Import the LMS gradebook export (local/kreck/export_marks.php, JSON or CSV)
 into kreckMark, keyed by the shared studentID + course shortname, and display
-the stored marks per class. Gibbon is the record-keeper; marks flow one way,
+the stored marks per class. SMS is the record-keeper; marks flow one way,
 LMS → SMS, at semester end (or any time). Re-importing updates in place.
 */
 
@@ -88,7 +91,7 @@ ob_start();
 .kreck-mk .muted { color:#64748b; }
 </style>
 <div class="kreck-mk">
-    <p><?php echo __('Import the gradebook export from the Kreck LMS (Moodle): its admin area → KRECK → "Export marks to KRECK SMS" → Download (JSON or CSV). Each learner\'s marks are matched to their school record by student ID and kept here. Re-importing refreshes the figures.'); ?></p>
+    <p><?php echo __('Import the gradebook export from the Kreck LMS: its admin area → KRECK → "Export marks to KRECK SMS" → Download (JSON or CSV). Each learner\'s marks are matched to their school record by student ID and kept here. Re-importing refreshes the figures.'); ?></p>
 
     <?php if ($parseError !== '') { ?><p class="err"><?php echo htmlspecialchars($parseError); ?></p><?php } ?>
 

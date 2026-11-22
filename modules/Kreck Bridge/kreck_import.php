@@ -1,101 +1,34 @@
 <?php
+require_once __DIR__ . '/src/Diagnostics.php';
+KreckBridgeDiagnostics::register(__FILE__);
+
 /*
 Kreck Bridge — Import Institution Data.
 
-A KRECK-branded importer that reuses Gibbon's native import engine
+A KRECK-branded importer that reuses SMS's native import engine
 (Gibbon\Data\Importer) underneath. Two ways in, as the client asked:
   (1) upload an Excel/CSV file (incl. legacy sheets), and
   (2) an inbuilt HTML table/form to fill data manually in the app.
 Both validate (dry-run) with per-row errors and commit safely (dedup/sync).
 */
 
+require_once __DIR__ . '/src/InstitutionImporter.php';
+
 use Gibbon\Data\PasswordPolicy;
-use Gibbon\Forms\PersonalDataFieldSettings;
 use Gibbon\Domain\System\SettingGateway;
 use Gibbon\Contracts\Database\Connection;
 
-// ===== KRECK in-page diagnostics ============================================
-// Replaces Gibbon's generic "the Gibbons have escaped" with a precise, in-page
-// report: how far the page got, what broke (message + file:line + trace), and
-// which module files are actually present on the server. Add &kreckDebug=1 to
-// the URL to see the full trace even on success.
-$kreckBaseOb = ob_get_level();
-$kreckSteps = [];
-$kstep = function ($label, $ok = true, $detail = '') use (&$kreckSteps) { $kreckSteps[] = [$ok, $label, $detail]; };
-$kreckDiag = function (?\Throwable $e = null) use (&$kreckSteps) {
-    $esc = fn ($s) => htmlspecialchars((string) $s);
-    $files = ['kreck_import.php', 'kreck_import_institution.php', 'kreck_export.php', 'kreck_lms.php', 'kreck_marks.php',
-        'kreck_import_links.php', 'kreck_settings.php', 'kreck_settingsProcess.php', 'manifest.php', 'version.php', 'CHANGEDB.php',
-        'src/InstitutionImporter.php', 'src/ManifestBuilder.php', 'src/KreckLinkStore.php', 'src/SalaryManager.php',
-        'imports/kreck_feeCategories.yml', 'imports/kreck_fees.yml'];
-    $h = '<div style="max-width:960px;font-family:system-ui,-apple-system,sans-serif;margin-top:12px">';
-    $h .= '<h3 style="color:#0e6b63;margin:0 0 10px">KRECK Import — diagnostics</h3>';
-    $h .= '<ol style="line-height:1.7;padding-left:22px;margin:0 0 12px">';
-    foreach ($kreckSteps as $s) {
-        $h .= '<li>' . ($s[0] ? '&#9989;' : '&#10060;') . ' ' . $esc($s[1])
-            . ($s[2] !== '' ? ' <span style="color:#64748b">&mdash; ' . $esc($s[2]) . '</span>' : '') . '</li>';
-    }
-    $h .= '</ol>';
-    if ($e) {
-        $h .= '<div style="background:#fff1f0;border:1px solid #ffa39e;border-radius:8px;padding:12px 14px">'
-            . '<b style="color:#b42318">Stopped here: ' . $esc(get_class($e)) . '</b>'
-            . '<div style="margin:6px 0;color:#7a271a;font-weight:600">' . $esc($e->getMessage()) . '</div>'
-            . '<div style="color:#64748b;font-size:13px">' . $esc($e->getFile()) . ' : line ' . $e->getLine() . '</div>'
-            . '<pre style="background:#fff;border:1px solid #eee;border-radius:6px;padding:8px;overflow:auto;font-size:12px;max-height:220px">'
-            . $esc($e->getTraceAsString()) . '</pre></div>';
-    }
-    $h .= '<h4 style="margin:14px 0 6px">Module files on this server</h4>';
-    $h .= '<ul style="columns:2;-webkit-columns:2;line-height:1.6;padding-left:18px;font-size:13px">';
-    foreach ($files as $f) {
-        $h .= '<li>' . (is_file(__DIR__ . '/' . $f) ? '&#9989;' : '&#10060; MISSING') . ' ' . $esc($f) . '</li>';
-    }
-    $h .= '</ul><p style="color:#64748b;font-size:13px">PHP ' . $esc(PHP_VERSION) . ' &middot; folder: ' . $esc(__DIR__) . '</p></div>';
-    return $h;
-};
-$KRECK_DEBUG = isset($_REQUEST['kreckDebug']);
+if (isActionAccessible($guid, $connection2, '/modules/Kreck Bridge/kreck_import.php') == false) {
+    $page->addError(__('You do not have access to this action.'));
+    return;
+}
 
-try {
-    $kstep('Page loaded and running', true, basename(__FILE__));
-
-    if (isActionAccessible($guid, $connection2, '/modules/Kreck Bridge/kreck_import.php') == false) {
-        $page->addError(__('You do not have access to this action. An administrator must grant your role the "Import Institution Data" permission.'));
-        return;
-    }
-    $kstep('Permission check passed');
-
-    $kreckImpFile = __DIR__ . '/src/InstitutionImporter.php';
-    if (!is_file($kreckImpFile)) {
-        throw new \RuntimeException('Required file missing: src/InstitutionImporter.php — upload the module\'s src/ folder next to this page.');
-    }
-    require_once $kreckImpFile;
-    $kstep('Importer class loaded', true, 'src/InstitutionImporter.php');
-
-    // Resolve PersonalDataFieldSettings robustly across Gibbon versions: v31 has
-    // it in the container; v30 does not, so build it from SettingGateway (its only
-    // dependency), and fall back to null if the class is absent (ImportType is
-    // tolerant of null).
-    $kreckSettingGateway = $container->get(SettingGateway::class);
-    try {
-        $kreckPdfs = $container->get(PersonalDataFieldSettings::class);
-        $kstep('Personal-data field settings resolved', true, 'from container');
-    } catch (\Throwable $pdfsEx) {
-        if (class_exists(PersonalDataFieldSettings::class)) {
-            $kreckPdfs = new PersonalDataFieldSettings($kreckSettingGateway);
-            $kstep('Personal-data field settings resolved', true, 'built from SettingGateway (v30 fallback)');
-        } else {
-            $kreckPdfs = null;
-            $kstep('Personal-data field settings not available — continuing without', true);
-        }
-    }
-
-    $importer = new KreckInstitutionImporter(
-        $container->get(Connection::class),
-        $container->get(PasswordPolicy::class),
-        $kreckPdfs,
-        $kreckSettingGateway,
-        __DIR__ . '/imports'
-    );
-    $kstep('Importer ready (database + Gibbon services resolved)');
+$importer = new KreckInstitutionImporter(
+    $container->get(Connection::class),
+    $container->get(PasswordPolicy::class),
+    $container->get(SettingGateway::class),
+    __DIR__ . '/imports'
+);
 
 $registry = $importer->typeRegistry();
 $type = $_REQUEST['type'] ?? 'kreck_feeCategories';
@@ -104,7 +37,7 @@ $mode = $_REQUEST['mode'] ?? 'sync';
 $self = $session->get('absoluteURL') . '/index.php?q=/modules/Kreck Bridge/kreck_import.php';
 
 $importType = $importer->loadType($type);
-$cols = $importType ? $importer->describeFields($importType) : [];
+$cols = $importType ? $importer->describeFields($importType, true) : [];
 $entry = $importer->registryEntry($type);
 $typeLabel = $entry['label'] ?? $type;
 
@@ -151,7 +84,8 @@ ob_start();
 .kreck-imp table.grid th { background:#f4f7f9; padding:6px 8px; font-size:12px; text-align:left; white-space:nowrap; border-bottom:1px solid #e2e8ee; }
 .kreck-imp table.grid th .req { color:#d64545; }
 .kreck-imp table.grid td { padding:2px; border-bottom:1px solid #eef2f5; }
-.kreck-imp table.grid input { width:100%; min-width:120px; border:1px solid #d9e1e8; border-radius:4px; padding:5px 6px; }
+.kreck-imp table.grid input,
+.kreck-imp table.grid select { width:100%; min-width:120px; border:1px solid #d9e1e8; border-radius:4px; padding:5px 6px; background:#fff; }
 .kreck-imp .row-del { color:#d64545; cursor:pointer; font-weight:700; padding:0 8px; }
 .kreck-imp .kbtn { background:#0e9f9a; color:#fff; border:0; border-radius:6px; padding:8px 14px; font-weight:600; cursor:pointer; }
 .kreck-imp .kbtn.ghost { background:#eef5f4; color:#0e6b63; }
@@ -161,7 +95,7 @@ ob_start();
 .kreck-imp .ok { color:#157f3d; font-weight:700; }
 </style>
 <div class="kreck-imp" style="max-width:1000px">
-    <p><?php echo __('Seed the institution into Gibbon. Fill the table in-app, or upload an Excel/CSV file. KRECK validates every row (dry-run), shows errors, and commits safely — re-running will not duplicate existing records.'); ?></p>
+    <p><?php echo __('Seed the institution into SMS. Fill the table in-app, or upload an Excel/CSV file. KRECK validates every row (dry-run), shows errors, and commits safely — re-running will not duplicate existing records.'); ?></p>
     <div style="margin:0 0 14px; padding:10px 14px; background:#eef5f4; border-radius:8px; display:flex; align-items:center; gap:10px; flex-wrap:wrap">
         <b><?php echo __('Have everything at once?'); ?></b>
         <span class="emphasis small" style="flex:1"><?php echo __('Import the whole institution from a single multi-sheet workbook (all types, one atomic pass).'); ?></span>
@@ -219,8 +153,19 @@ ob_start();
                         foreach ($seed as $r):
                         ?>
                             <tr>
-                                <?php foreach ($cols as $c): ?>
-                                    <td><input data-field="<?php echo htmlspecialchars($c['field']); ?>" value="<?php echo htmlspecialchars($r[$c['field']] ?? ''); ?>"></td>
+                                <?php foreach ($cols as $c): $val = (string) ($r[$c['field']] ?? ''); ?>
+                                    <td>
+                                    <?php if (!empty($c['options'])): ?>
+                                        <select data-field="<?php echo htmlspecialchars($c['field']); ?>">
+                                            <option value="">— <?php echo __('select'); ?> —</option>
+                                            <?php foreach ($c['options'] as $opt): ?>
+                                                <option value="<?php echo htmlspecialchars($opt['value']); ?>"<?php echo $val === (string) $opt['value'] ? ' selected' : ''; ?>><?php echo htmlspecialchars($opt['label']); ?></option>
+                                            <?php endforeach; ?>
+                                        </select>
+                                    <?php else: ?>
+                                        <input data-field="<?php echo htmlspecialchars($c['field']); ?>" value="<?php echo htmlspecialchars($val); ?>">
+                                    <?php endif; ?>
+                                    </td>
                                 <?php endforeach; ?>
                                 <td><span class="row-del" title="<?php echo __('Remove'); ?>">&times;</span></td>
                             </tr>
@@ -232,7 +177,7 @@ ob_start();
                 <button type="button" class="kbtn ghost" id="addRow">+ <?php echo __('Add row'); ?></button>
                 <span style="flex:1"></span>
                 <button type="submit" class="kbtn" name="kreckAction" value="validate"><?php echo __('Validate (dry-run)'); ?></button>
-                <button type="submit" class="kbtn amber" name="kreckAction" value="import" onclick="return confirm('<?php echo __('Commit these rows to Gibbon?'); ?>')"><?php echo __('Import'); ?></button>
+                <button type="submit" class="kbtn amber" name="kreckAction" value="import" onclick="return confirm('<?php echo __('Commit these rows to SMS?'); ?>')"><?php echo __('Import'); ?></button>
             </div>
         </form>
     </div>
@@ -294,7 +239,21 @@ ob_start();
 
 <script>
 (function () {
-    var cols = <?php echo json_encode(array_map(fn($c) => $c['field'], $cols)); ?>;
+    // Column metadata: field machine-name + optional pick-list options. New
+    // rows are built from this so dropdowns are populated client-side too.
+    var cols = <?php echo json_encode(array_map(fn($c) => ['field' => $c['field'], 'options' => $c['options'] ?? null], $cols), JSON_UNESCAPED_UNICODE); ?>;
+    function cellHtml(col) {
+        if (col.options && col.options.length) {
+            var h = '<td><select data-field="' + col.field + '"><option value="">— <?php echo __('select'); ?> —</option>';
+            col.options.forEach(function (o) {
+                var v = String(o.value).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+                var l = String(o.label).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+                h += '<option value="' + v + '">' + l + '</option>';
+            });
+            return h + '</select></td>';
+        }
+        return '<td><input data-field="' + col.field + '"></td>';
+    }
     // Tabs
     document.querySelectorAll('.kreck-imp .tab').forEach(function (t) {
         t.addEventListener('click', function () {
@@ -309,7 +268,7 @@ ob_start();
     document.getElementById('addRow').addEventListener('click', function () {
         var tr = document.createElement('tr');
         var html = '';
-        cols.forEach(function (f) { html += '<td><input data-field="' + f + '"></td>'; });
+        cols.forEach(function (col) { html += cellHtml(col); });
         html += '<td><span class="row-del" title="remove">&times;</span></td>';
         tr.innerHTML = html;
         body.appendChild(tr);
@@ -319,7 +278,7 @@ ob_start();
         if (e.target.classList.contains('row-del')) {
             var rows = body.querySelectorAll('tr');
             if (rows.length > 1) e.target.closest('tr').remove();
-            else e.target.closest('tr').querySelectorAll('input').forEach(i => i.value = '');
+            else e.target.closest('tr').querySelectorAll('[data-field]').forEach(i => i.value = '');
         }
     });
     // Serialize on submit
@@ -327,7 +286,7 @@ ob_start();
         var out = [];
         body.querySelectorAll('tr').forEach(function (tr) {
             var row = {}, any = false;
-            tr.querySelectorAll('input[data-field]').forEach(function (inp) {
+            tr.querySelectorAll('[data-field]').forEach(function (inp) {
                 row[inp.dataset.field] = inp.value;
                 if (inp.value.trim() !== '') any = true;
             });
@@ -338,18 +297,4 @@ ob_start();
 })();
 </script>
 <?php
-    $kstep('Page rendered');
-    echo ob_get_clean();
-    if ($KRECK_DEBUG) {
-        echo $kreckDiag(null);
-    }
-} catch (\Throwable $kreckE) {
-    while (ob_get_level() > $kreckBaseOb) {
-        ob_end_clean();
-    }
-    echo '<div class="error" style="margin-bottom:10px">'
-        . 'KRECK could not finish loading this page. The step-by-step report below shows exactly where it stopped.'
-        . '</div>';
-    echo $kreckDiag($kreckE);
-    return;
-}
+echo ob_get_clean();
