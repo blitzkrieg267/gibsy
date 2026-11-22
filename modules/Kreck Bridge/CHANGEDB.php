@@ -506,3 +506,17 @@ INSERT INTO gibbonPermission (gibbonRoleID,gibbonActionID)
  WHERE r.category='Parent'
  AND NOT EXISTS (SELECT 1 FROM gibbonPermission p WHERE p.gibbonRoleID=r.gibbonRoleID AND p.gibbonActionID=a.gibbonActionID);end
 ";
+
+// -> 0.5.31: register the admin-only "Seed Demo Data" page (a friendly, one-click
+// wrapper around the demo seeder). Granted to the Administrator role only. Idempotent.
+++ $count;
+$sql[$count][0] = '0.5.31';
+$sql[$count][1] = "
+INSERT INTO gibbonAction (gibbonModuleID,name,precedence,category,description,URLList,entryURL,entrySidebar,menuShow,defaultPermissionAdmin,defaultPermissionTeacher,defaultPermissionStudent,defaultPermissionParent,defaultPermissionSupport,categoryPermissionStaff,categoryPermissionStudent,categoryPermissionParent,categoryPermissionOther)
+ SELECT (SELECT gibbonModuleID FROM gibbonModule WHERE name='Kreck Bridge'),'Seed Demo Data',0,'Bridge','Populate this installation with a complete demo dataset (15 logins across every actor, plus timetable, lessons, attendance, grades, parents, activities, fees/invoices and payroll). Idempotent; administrators only.','kreck_demo_seed.php','kreck_demo_seed.php','Y','Y','Y','N','N','N','N','Y','N','N','N'
+ FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM gibbonAction WHERE name='Seed Demo Data' AND gibbonModuleID=(SELECT gibbonModuleID FROM gibbonModule WHERE name='Kreck Bridge'));end
+INSERT INTO gibbonPermission (gibbonRoleID,gibbonActionID)
+ SELECT r.gibbonRoleID,(SELECT gibbonActionID FROM gibbonAction WHERE name='Seed Demo Data' AND gibbonModuleID=(SELECT gibbonModuleID FROM gibbonModule WHERE name='Kreck Bridge'))
+ FROM gibbonRole r WHERE r.name='Administrator'
+ AND NOT EXISTS (SELECT 1 FROM gibbonPermission p WHERE p.gibbonRoleID=r.gibbonRoleID AND p.gibbonActionID=(SELECT gibbonActionID FROM gibbonAction WHERE name='Seed Demo Data' AND gibbonModuleID=(SELECT gibbonModuleID FROM gibbonModule WHERE name='Kreck Bridge')));end
+";

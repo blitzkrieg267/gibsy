@@ -17,7 +17,7 @@ $description = 'KRECK SMS↔LMS bridge: synchronizes institution manifests, mana
 $entryURL    = 'kreck_home.php';
 $type        = 'Additional';   // Installer rejects anything that is not 'Additional'.
 $category    = 'Other';
-$version     = '0.5.30';        // gibbonModule.version is varchar(8).
+$version     = '0.5.31';        // gibbonModule.version is varchar(8).
 $author      = 'KRECK MicroLearn';
 $url         = 'https://krecke.example';
 
@@ -307,6 +307,27 @@ $actionRows[] = [
     'description'               => 'Build the whole institution in the app, step by step, in the right order — each step explains what it is and how it relates — then validate and import.',
     'URLList'                   => 'kreck_builder.php',
     'entryURL'                  => 'kreck_builder.php',
+    'entrySidebar'              => 'Y',
+    'menuShow'                  => 'Y',
+    'defaultPermissionAdmin'    => 'Y',
+    'defaultPermissionTeacher'  => 'N',
+    'defaultPermissionStudent'  => 'N',
+    'defaultPermissionParent'   => 'N',
+    'defaultPermissionSupport'  => 'N',
+    'categoryPermissionStaff'   => 'Y',
+    'categoryPermissionStudent' => 'N',
+    'categoryPermissionParent'  => 'N',
+    'categoryPermissionOther'   => 'N',
+];
+
+$actionRows[] = [
+    // Admin-only one-click demo seeder: 15 logins + one-of-everything.
+    'name'                      => 'Seed Demo Data',
+    'precedence'                => 0,
+    'category'                  => 'Bridge',
+    'description'               => 'Populate this installation with a complete demo dataset (15 logins across every actor, plus timetable, lessons, attendance, grades, parents, activities, fees/invoices and payroll). Idempotent; administrators only.',
+    'URLList'                   => 'kreck_demo_seed.php',
+    'entryURL'                  => 'kreck_demo_seed.php',
     'entrySidebar'              => 'Y',
     'menuShow'                  => 'Y',
     'defaultPermissionAdmin'    => 'Y',

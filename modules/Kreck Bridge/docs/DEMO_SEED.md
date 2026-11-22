@@ -7,15 +7,21 @@ already added, configured and completed.
 
 ## Run it
 
-From the SMS (Gibbon) web root, on the command line:
+**Easiest — in the app (admin only):** log in as an Administrator and open
+**KRECK Bridge → Seed Demo Data** (Bridge menu). Tick the confirmation box and
+press **Seed demo data**. The page shows what it did and lists the 15 logins. A
+**Remove demo data** button cleanly wipes it again. (The action is granted to the
+Administrator role only.)
+
+**Or from the command line**, from the SMS (Gibbon) web root:
 
 ```bash
 php "modules/Kreck Bridge/cli/kreck_demo_seed.php"
 ```
 
-It prints the 15 logins at the end. It is **idempotent** — every run first wipes
-whatever it previously created (the `demo.*` accounts and rows tagged
-`[KRECKDEMO]`) and reseeds from clean, so you can re-run it any time.
+Both routes run the **same** engine (`src/DemoSeeder.php`). It is **idempotent** —
+every run first wipes whatever it previously created (the `demo.*` accounts and
+rows tagged `[KRECKDEMO]`) and reseeds from clean, so you can re-run it any time.
 
 ## The 15 logins
 
