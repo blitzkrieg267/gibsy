@@ -17,7 +17,7 @@ $description = 'KRECK SMS↔LMS bridge: synchronizes institution manifests, mana
 $entryURL    = 'kreck_home.php';
 $type        = 'Additional';   // Installer rejects anything that is not 'Additional'.
 $category    = 'Other';
-$version     = '0.5.31';        // gibbonModule.version is varchar(8).
+$version     = '0.5.32';        // gibbonModule.version is varchar(8).
 $author      = 'KRECK MicroLearn';
 $url         = 'https://krecke.example';
 

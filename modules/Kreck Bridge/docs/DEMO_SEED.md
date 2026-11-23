@@ -64,13 +64,18 @@ All share one password: **`Demo@Kreck26`**
 - **Payroll (KRECK salaries)** — four approved salaries, each with a **Paid** monthly
   payment.
 
-## Demoing the LMS (Moodle) side too
+## Auto-sync to the LMS
 
-The seeder populates the **SMS**. To show the **LMS**, log in to the SMS and run
-**KRECK → Export** to sync this demo to Moodle — that creates the demo students,
-parents, course and the **parent mirror** (each `demo.parent*` sees their child's
-KRECK summary + fee balance on the LMS). The LMS learner analytics (attendance %,
-streak, struggle topics) can be topped up with the Moodle-side `local/kreck/seed.php`.
+After seeding, the seeder **automatically runs Export** to push the demo to the LMS —
+provided an **HTTPS** LMS endpoint and a web-service token are set in **Kreck Settings**.
+This creates the demo students, parents, course and the **parent mirror** on Moodle (each
+`demo.parent*` sees their child's KRECK summary + fee balance), reconciled by username with
+the LMS-side demo. The `Export → LMS:` line in the run log shows the outcome; if the LMS
+isn't configured (or the endpoint isn't HTTPS), the sync is skipped with a note and seeding
+still succeeds — you can run **KRECK → Export** manually any time.
+
+The LMS-only analytics (attendance %, streak, struggle topics) and the graded **Assignment**
+come from the Moodle-side one-click **Seed LMS Demo** page (or `local/kreck/seed.php`).
 
 ## Cleaning up
 

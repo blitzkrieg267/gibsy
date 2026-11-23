@@ -19,6 +19,8 @@ require_once __DIR__ . '/AssessmentManager.php';
 require_once __DIR__ . '/SalaryManager.php';
 require_once __DIR__ . '/PlannerManager.php';
 require_once __DIR__ . '/FamilyLink.php';
+require_once __DIR__ . '/ManifestBuilder.php';
+require_once __DIR__ . '/Exporter.php';
 
 use Gibbon\Contracts\Database\Connection;
 
@@ -412,6 +414,32 @@ class KreckDemoSeeder
                 $this->say("Payroll: $made salaries approved + a paid payment each.");
             }
         } catch (\Throwable $e) { $this->failPhase('payroll', $e); }
+
+        // PHASE 10 — auto-sync (Export) to the LMS, so one action stands up the
+        // SMS demo AND pushes it to Moodle (demo users/course + parent mirror,
+        // reconciled by username). Gated on the LMS being configured; a failure
+        // never breaks the seed.
+        try {
+            $settings = [];
+            foreach ($pdo->query("SELECT name, value FROM gibbonSetting WHERE scope='Kreck Bridge'") as $r) {
+                $settings[$r['name']] = $r['value'];
+            }
+            $endpoint = trim((string) ($settings['moodleEndpoint'] ?? ''));
+            $token = trim((string) ($settings['moodleToken'] ?? ''));
+            if ($endpoint === '' || $token === '' || stripos($endpoint, 'https://') !== 0) {
+                $this->say('Export → LMS: skipped — set an HTTPS LMS endpoint + web-service token in Kreck Settings, then use Export (or re-seed) to sync.');
+            } else {
+                $manifest = (new KreckManifestBuilder($pdo, $settings))->build(['gibbonSchoolYearID' => (int) $syid]);
+                $res = KreckExporter::sync($manifest, $settings, false, 'merge');
+                if (!empty($res['error'])) {
+                    $this->say('Export → LMS: sync error — ' . $res['error']);
+                } else {
+                    $c = $res['counts'] ?? ($res['created'] ?? []);
+                    $summary = is_array($c) ? implode(', ', array_map(fn($k, $v) => "$k $v", array_keys($c), array_values($c))) : '';
+                    $this->say('Export → LMS: synced' . ($summary !== '' ? " ($summary)" : ' (manifest accepted)') . '.');
+                }
+            }
+        } catch (\Throwable $e) { $this->failPhase('export sync', $e); }
 
         return ['ok' => true, 'log' => $this->log, 'accounts' => self::ACCOUNTS, 'password' => self::DEMO_PASSWORD];
     }
