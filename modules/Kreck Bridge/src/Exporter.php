@@ -94,4 +94,74 @@ class KreckExporter
         $response['httpStatus'] = $httpStatus;
         return $response;
     }
+
+    /**
+     * Generic live call to any LMS web-service function (the "probe" channel).
+     * Used e.g. to pull a student's marks on demand. Returns the decoded JSON
+     * response, or ['error' => '...'] on any failure.
+     *
+     * @param array  $settings   Module settings (needs https moodleEndpoint + moodleToken).
+     * @param string $wsfunction The LMS WS function name, e.g. local_kreck_get_student_marks.
+     * @param array  $params     Extra POST params for that function.
+     * @param int    $timeout    Request timeout (seconds).
+     * @return array
+     */
+    public static function call(array $settings, string $wsfunction, array $params = [], int $timeout = 60): array
+    {
+        $token = trim((string) ($settings['moodleToken'] ?? ''));
+        $moodleBase = rtrim((string) ($settings['moodleEndpoint'] ?? ''), '/');
+        $urlparts = parse_url($moodleBase);
+
+        if ($token === '' || !$urlparts || ($urlparts['scheme'] ?? '') !== 'https' || empty($urlparts['host'])) {
+            return ['error' => __('Configure an HTTPS LMS endpoint and restricted web-service token in Kreck Settings first.')];
+        }
+        if (!function_exists('curl_init')) {
+            return ['error' => __('PHP cURL is required to query the LMS.')];
+        }
+
+        $endpoint = preg_match('#/webservice/rest/server\.php$#', $moodleBase)
+            ? $moodleBase : $moodleBase . '/webservice/rest/server.php';
+        $fields = array_merge([
+            'wstoken' => $token,
+            'wsfunction' => $wsfunction,
+            'moodlewsrestformat' => 'json',
+        ], $params);
+
+        $curl = curl_init($endpoint);
+        if ($curl === false) {
+            return ['error' => __('Could not initialize the HTTPS request to LMS.')];
+        }
+        $configured = curl_setopt_array($curl, [
+            CURLOPT_POST => true,
+            CURLOPT_POSTFIELDS => http_build_query($fields),
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_CONNECTTIMEOUT => 10,
+            CURLOPT_TIMEOUT => max(10, $timeout),
+            CURLOPT_SSL_VERIFYPEER => true,
+            CURLOPT_SSL_VERIFYHOST => 2,
+            CURLOPT_FOLLOWLOCATION => false,
+            CURLOPT_HTTPHEADER => ['Content-Type: application/x-www-form-urlencoded'],
+        ]);
+        if (!$configured) {
+            curl_close($curl);
+            return ['error' => __('Could not configure the HTTPS request to LMS.')];
+        }
+
+        $body = curl_exec($curl);
+        $httpStatus = (int) curl_getinfo($curl, CURLINFO_HTTP_CODE);
+        $curlError = curl_error($curl);
+        curl_close($curl);
+
+        if ($body === false) {
+            return ['error' => __('LMS request failed: ') . $curlError];
+        }
+        $response = json_decode($body, true);
+        if ($httpStatus < 200 || $httpStatus >= 300 || !is_array($response)) {
+            return ['error' => __('LMS returned an invalid response.')];
+        }
+        if (!empty($response['exception'])) {
+            return ['error' => (string) ($response['message'] ?? $response['exception'])];
+        }
+        return $response;
+    }
 }

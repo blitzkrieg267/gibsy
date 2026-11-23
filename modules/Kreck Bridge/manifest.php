@@ -17,7 +17,7 @@ $description = 'KRECK SMS↔LMS bridge: synchronizes institution manifests, mana
 $entryURL    = 'kreck_home.php';
 $type        = 'Additional';   // Installer rejects anything that is not 'Additional'.
 $category    = 'Other';
-$version     = '0.5.32';        // gibbonModule.version is varchar(8).
+$version     = '0.5.33';        // gibbonModule.version is varchar(8).
 $author      = 'KRECK MicroLearn';
 $url         = 'https://krecke.example';
 
@@ -311,6 +311,28 @@ $actionRows[] = [
     'menuShow'                  => 'Y',
     'defaultPermissionAdmin'    => 'Y',
     'defaultPermissionTeacher'  => 'N',
+    'defaultPermissionStudent'  => 'N',
+    'defaultPermissionParent'   => 'N',
+    'defaultPermissionSupport'  => 'N',
+    'categoryPermissionStaff'   => 'Y',
+    'categoryPermissionStudent' => 'N',
+    'categoryPermissionParent'  => 'N',
+    'categoryPermissionOther'   => 'N',
+];
+
+$actionRows[] = [
+    // Live "probe" import: ask the LMS for a learner's full gradebook on demand
+    // (no export/upload), display it, and optionally save it to the record.
+    'name'                      => 'Pull Marks from LMS',
+    'precedence'                => 3,
+    'category'                  => 'Bridge',
+    'description'               => 'Ask the connected LMS directly for a learner\'s complete gradebook — every course, assignment, quiz and the course total, with grade, %, letter and feedback — and optionally save the figures to the school record.',
+    'URLList'                   => 'kreck_lms_marks.php',
+    'entryURL'                  => 'kreck_lms_marks.php',
+    'entrySidebar'              => 'Y',
+    'menuShow'                  => 'Y',
+    'defaultPermissionAdmin'    => 'Y',
+    'defaultPermissionTeacher'  => 'Y',
     'defaultPermissionStudent'  => 'N',
     'defaultPermissionParent'   => 'N',
     'defaultPermissionSupport'  => 'N',

@@ -520,3 +520,19 @@ INSERT INTO gibbonPermission (gibbonRoleID,gibbonActionID)
  FROM gibbonRole r WHERE r.name='Administrator'
  AND NOT EXISTS (SELECT 1 FROM gibbonPermission p WHERE p.gibbonRoleID=r.gibbonRoleID AND p.gibbonActionID=(SELECT gibbonActionID FROM gibbonAction WHERE name='Seed Demo Data' AND gibbonModuleID=(SELECT gibbonModuleID FROM gibbonModule WHERE name='Kreck Bridge')));end
 ";
+
+// -> 0.5.33: register the "Pull Marks from LMS" page — the live marks probe that
+// asks the connected LMS for a learner's full gradebook on demand (no export/
+// upload) and can save the figures to the record. Granted to Administrator and
+// Teacher roles (mirrors the manifest defaultPermissionAdmin/Teacher). Idempotent.
+++ $count;
+$sql[$count][0] = '0.5.33';
+$sql[$count][1] = "
+INSERT INTO gibbonAction (gibbonModuleID,name,precedence,category,description,URLList,entryURL,entrySidebar,menuShow,defaultPermissionAdmin,defaultPermissionTeacher,defaultPermissionStudent,defaultPermissionParent,defaultPermissionSupport,categoryPermissionStaff,categoryPermissionStudent,categoryPermissionParent,categoryPermissionOther)
+ SELECT (SELECT gibbonModuleID FROM gibbonModule WHERE name='Kreck Bridge'),'Pull Marks from LMS',3,'Bridge','Ask the connected LMS directly for a learner\'s complete gradebook — every course, assignment, quiz and the course total, with grade, %, letter and feedback — and optionally save the figures to the school record.','kreck_lms_marks.php','kreck_lms_marks.php','Y','Y','Y','Y','N','N','N','Y','N','N','N'
+ FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM gibbonAction WHERE name='Pull Marks from LMS' AND gibbonModuleID=(SELECT gibbonModuleID FROM gibbonModule WHERE name='Kreck Bridge'));end
+INSERT INTO gibbonPermission (gibbonRoleID,gibbonActionID)
+ SELECT r.gibbonRoleID,(SELECT gibbonActionID FROM gibbonAction WHERE name='Pull Marks from LMS' AND gibbonModuleID=(SELECT gibbonModuleID FROM gibbonModule WHERE name='Kreck Bridge'))
+ FROM gibbonRole r WHERE r.name IN ('Administrator','Teacher')
+ AND NOT EXISTS (SELECT 1 FROM gibbonPermission p WHERE p.gibbonRoleID=r.gibbonRoleID AND p.gibbonActionID=(SELECT gibbonActionID FROM gibbonAction WHERE name='Pull Marks from LMS' AND gibbonModuleID=(SELECT gibbonModuleID FROM gibbonModule WHERE name='Kreck Bridge')));end
+";
