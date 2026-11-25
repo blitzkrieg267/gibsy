@@ -61,7 +61,12 @@ instead of duplicating them. All-day events are anchored to the LMS site timezon
 
 ## Home page integration
 
-KRECK Home appears on the main Home page directly after the timetable. Gibbon offers modules only a tab beside the
-Planner, so this uses one small marked edit to `src/UI/Dashboard/StaffDashboard.php`
-(`KRECK-PATCH` markers; managed by `src/CorePatch.php`). A Gibbon upgrade replaces that file: open **KRECK Home**
-as an administrator (it re-applies automatically) or run `php "modules/Kreck Bridge/cli/kreck_core_patch.php" apply`.
+KRECK Home appears on the main Home page as the first tab — **KRECK**, ahead of Planner and Enrolment — for staff
+and administrators. Gibbon only lets a module append tabs after its own, so this uses one small marked edit to
+`src/UI/Dashboard/StaffDashboard.php` (`KRECK-PATCH` markers; managed by `src/CorePatch.php`). A Gibbon upgrade
+replaces that file: open **KRECK Home** as an administrator (it re-applies automatically) or run
+`php "modules/Kreck Bridge/cli/kreck_core_patch.php" apply`; `revert` removes it.
+
+The first tab is the one that opens by default, so KRECK becomes the landing tab. To land on Planner (or another
+tab) instead, set the staff dashboard default tab under School Admin → Dashboard settings — note the tab numbers
+shift by one now that KRECK is tab 1.

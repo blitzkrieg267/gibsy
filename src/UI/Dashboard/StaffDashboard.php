@@ -221,14 +221,21 @@ class StaffDashboard implements OutputableInterface, ContainerAwareInterface
         // TABS
         $tabs = [];
 
+        // KRECK-PATCH home-panel: the KRECK tab, ahead of the Planner tab
+        if ($kreckHome !== '') {
+            $tabs['KRECK'] = [
+                'label'   => 'KRECK',
+                'content' => $kreckHome,
+                'icon'    => 'squares',
+            ];
+        }
+
         if (!empty($planner) || !empty($timetable)) {
             $tabs['Planner'] = [
                 'label'   => __('Planner'),
-                'content' => $planner.$timetable.$kreckHome, // KRECK-PATCH home-panel: Kreck Home directly after the timetable
+                'content' => $planner.$timetable,
                 'icon'    => 'book-open',
             ];
-        } elseif ($kreckHome !== '') { // KRECK-PATCH home-panel: staff without Planner/Timetable still get Kreck Home
-            $tabs['KRECK'] = ['label' => 'KRECK', 'content' => $kreckHome, 'icon' => 'home'];
         }
 
         if (count($formGroups) > 0) {

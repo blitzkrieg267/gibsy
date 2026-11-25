@@ -6,7 +6,7 @@
  * passive parent-rule warning and quick actions) as a self-contained component that
  * RETURNS its HTML. It is rendered by:
  *   - kreck_home.php           (the module page, context 'page'), and
- *   - the main Home dashboard  (context 'dashboard', placed after the timetable via the
+ *   - the main Home dashboard  (context 'dashboard', shown as the first ("KRECK") tab, ahead of the Planner tab, via the
  *     small marked patch in Gibbon's StaffDashboard — see src/CorePatch.php).
  *
  * It never echoes, never touches $page or global handlers, and is permission-gated by
@@ -190,7 +190,7 @@ class KreckHomePanel
 .kh-year .kp-ctl{min-height:34px;padding:.3rem .95rem;background:rgba(255,255,255,.1);color:#eaf2f0;border:1px solid rgba(255,255,255,.26);border-radius:999px;font-weight:700;font-size:.85rem}
 .kh-year .kp-caret{border-color:#c2d2d8}
 .kh-year .kp-ctl:focus,.kh-year .kp.kp-open .kp-ctl{border-color:var(--kh-teal2);box-shadow:0 0 0 3px rgba(106,138,40,.3)}
-.kreck-home.kh-dash{max-width:none;margin:26px 0 0}
+.kreck-home.kh-dash{max-width:none;margin:6px 0 0}
 .kh-sync{margin:22px 0 0;padding:12px 16px;border-radius:14px;background:#fff;border:1px solid rgba(15,30,46,.09);display:flex;align-items:center;gap:12px;flex-wrap:wrap;font-size:.86rem;color:var(--kh-muted)}
 .kh-sync .kh-sync-dot{width:10px;height:10px;border-radius:50%;background:#e6b765;flex:none}
 .kh-sync[data-state="ok"] .kh-sync-dot{background:#34d399;box-shadow:0 0 8px rgba(52,211,153,.7)}

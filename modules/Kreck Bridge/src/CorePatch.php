@@ -2,13 +2,13 @@
 /**
  * Kreck Bridge — managed core patches.
  *
- * Gibbon's Home dashboard only lets a module add a TAB beside the Planner tab; it has no hook
- * for "directly after the timetable". To place KRECK Home there we make one small, clearly
- * marked edit to src/UI/Dashboard/StaffDashboard.php. A Gibbon upgrade replaces that file and
+ * Gibbon's Home dashboard only lets a module append tabs AFTER its own (Planner, form groups, ...);
+ * there is no hook for a tab placed first. To show a "KRECK" tab ahead of the Planner tab we make one
+ * small, clearly marked edit to src/UI/Dashboard/StaffDashboard.php. A Gibbon upgrade replaces that file and
  * drops the edit, so this class keeps the patch manageable:
  *
- *   status()  — applied | pending (can be applied) | drifted (Gibbon changed the surrounding code)
- *               | unwritable | missing (target file not found)
+ *   status()  — applied | pending (can be applied) | outdated (an older KRECK patch; apply upgrades it)
+ *               | drifted (Gibbon changed the surrounding code) | unwritable | missing (target file not found)
  *   apply()   — idempotent; backs the original up once; refuses to write code that does not parse
  *   revert()  — restores the original text
  *   ensure()  — apply when pending (used when an administrator opens a Kreck page)
@@ -38,7 +38,19 @@ class KreckCorePatch
             . "                'icon'    => 'book-open',\n"
             . "            ];\n"
             . "        }\n";
-        $plannerReplace = "        if (!empty(\$planner) || !empty(\$timetable)) {\n"
+        // The KRECK tab is added BEFORE the Planner tab (tab order = array order).
+        $plannerReplace = "        // KRECK-PATCH home-panel: the KRECK tab, ahead of the Planner tab\n"
+            . "        if (\$kreckHome !== '') {\n"
+            . "            \$tabs['KRECK'] = [\n"
+            . "                'label'   => 'KRECK',\n"
+            . "                'content' => \$kreckHome,\n"
+            . "                'icon'    => 'squares',\n"
+            . "            ];\n"
+            . "        }\n\n"
+            . $plannerSearch;
+        $interim = str_replace("'icon'    => 'squares'", "'icon'    => 'home'", $plannerReplace);   // same layout, an icon name Gibbon does not have
+        // 0.5.34 first shipped KRECK Home appended under the timetable; upgrade that in place.
+        $legacyPlanner = "        if (!empty(\$planner) || !empty(\$timetable)) {\n"
             . "            \$tabs['Planner'] = [\n"
             . "                'label'   => __('Planner'),\n"
             . "                'content' => \$planner.\$timetable.\$kreckHome, // KRECK-PATCH home-panel: Kreck Home directly after the timetable\n"
@@ -50,28 +62,28 @@ class KreckCorePatch
 
         return [
             'home-panel' => [
-                'label' => 'KRECK Home on the main Home page (after the timetable)',
+                'label' => 'KRECK tab on the main Home page (ahead of the Planner tab)',
                 'file'  => 'src/UI/Dashboard/StaffDashboard.php',
                 'edits' => [
-                    [$tabsSearch, $block . $tabsSearch],
-                    [$plannerSearch, $plannerReplace],
+                    [$tabsSearch, $block . $tabsSearch, []],
+                    [$plannerSearch, $plannerReplace, [$legacyPlanner, $interim]],
                 ],
             ],
         ];
     }
 
     /** The Gibbon root (this file lives in modules/Kreck Bridge/src). */
-    public static function root(): string
+    public static function root(?string $root = null): string
     {
-        return dirname(__DIR__, 3);
+        return $root !== null ? rtrim($root, '/') : dirname(__DIR__, 3);
     }
 
     /** @return array<string,array{id:string,label:string,file:string,state:string,message:string}> */
-    public static function status(): array
+    public static function status(?string $root = null): array
     {
         $out = [];
         foreach (self::patches() as $id => $p) {
-            $path = self::root() . '/' . $p['file'];
+            $path = self::root($root) . '/' . $p['file'];
             $row = ['id' => $id, 'label' => $p['label'], 'file' => $p['file'], 'state' => 'missing', 'message' => ''];
             if (!is_file($path)) {
                 $row['message'] = 'Target file not found.';
@@ -79,14 +91,20 @@ class KreckCorePatch
                 continue;
             }
             $code = (string) file_get_contents($path);
-            $applied = 0; $pending = 0;
-            foreach ($p['edits'] as [$search, $replace]) {
-                if (strpos($code, $replace) !== false) { $applied++; }
+            $applied = 0; $pending = 0; $legacy = 0;
+            foreach ($p['edits'] as [$search, $replace, $olds]) {
+                if (strpos($code, $replace) !== false) { $applied++; continue; }
+                $isLegacy = false;
+                foreach ($olds as $old) { if (strpos($code, $old) !== false) { $isLegacy = true; } }
+                if ($isLegacy) { $legacy++; }
                 elseif (substr_count($code, $search) === 1) { $pending++; }
             }
             $n = count($p['edits']);
             if ($applied === $n) {
                 $row['state'] = 'applied';
+            } elseif ($applied + $pending + $legacy === $n && $legacy > 0) {
+                $row['state'] = is_writable($path) ? 'outdated' : 'unwritable';
+                $row['message'] = $row['state'] === 'unwritable' ? 'The web server cannot write this file. Run the CLI as the file owner, or make it writable.' : '';
             } elseif ($applied + $pending === $n) {
                 $row['state'] = is_writable($path) ? 'pending' : 'unwritable';
                 $row['message'] = $row['state'] === 'unwritable' ? 'The web server cannot write this file. Run the CLI as the file owner, or make it writable.' : '';
@@ -100,36 +118,36 @@ class KreckCorePatch
     }
 
     /** @return array{ok:bool,message:string} */
-    public static function apply(string $id = 'home-panel'): array
+    public static function apply(string $id = 'home-panel', ?string $root = null): array
     {
-        return self::transform($id, true);
+        return self::transform($id, true, $root);
     }
 
     /** @return array{ok:bool,message:string} */
-    public static function revert(string $id = 'home-panel'): array
+    public static function revert(string $id = 'home-panel', ?string $root = null): array
     {
-        return self::transform($id, false);
+        return self::transform($id, false, $root);
     }
 
-    /** Apply every patch that is pending. Returns the resulting status. */
-    public static function ensure(): array
+    /** Apply every patch that is pending (or upgrade an older KRECK patch). Returns the resulting status. */
+    public static function ensure(?string $root = null): array
     {
-        foreach (self::status() as $id => $row) {
-            if ($row['state'] === 'pending') {
-                self::apply($id);
+        foreach (self::status($root) as $id => $row) {
+            if (in_array($row['state'], ['pending', 'outdated'], true)) {
+                self::apply($id, $root);
             }
         }
-        return self::status();
+        return self::status($root);
     }
 
-    private static function transform(string $id, bool $apply): array
+    private static function transform(string $id, bool $apply, ?string $root = null): array
     {
         $patches = self::patches();
         if (!isset($patches[$id])) {
             return ['ok' => false, 'message' => 'Unknown patch.'];
         }
         $p = $patches[$id];
-        $path = self::root() . '/' . $p['file'];
+        $path = self::root($root) . '/' . $p['file'];
         if (!is_file($path)) {
             return ['ok' => false, 'message' => 'Target file not found.'];
         }
@@ -138,7 +156,11 @@ class KreckCorePatch
         }
         $code = (string) file_get_contents($path);
         $orig = $code;
-        foreach ($p['edits'] as [$search, $replace]) {
+        foreach ($p['edits'] as [$search, $replace, $olds]) {
+            // An older KRECK patch is put back to the original text first, whichever way we are going.
+            foreach ($olds as $old) {
+                if (strpos($code, $old) !== false) { $code = str_replace($old, $search, $code); }
+            }
             $from = $apply ? $search : $replace;
             $to   = $apply ? $replace : $search;
             if ($apply && strpos($code, $replace) !== false) { continue; }          // already applied

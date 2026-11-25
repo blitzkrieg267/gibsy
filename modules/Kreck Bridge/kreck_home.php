@@ -7,7 +7,7 @@ require_once __DIR__ . '/src/CorePatch.php';
 /*
 Kreck Bridge — KRECK Home (module page).
 
-The same panel that also appears on the main Home page, directly after the timetable
+The same panel that also appears on the main Home page as the first, "KRECK" tab, ahead of the Planner tab
 (see src/HomePanel.php and the managed patch in src/CorePatch.php). Kept as a page so the
 menu entry, deep links and the "KRECK Home" permission keep working. Read-only for school
 records. For administrators it also shows the state of the Home-page integration, applies it
@@ -35,7 +35,7 @@ if (isActionAccessible($guid, $connection2, '/modules/Kreck Bridge/kreck_setting
         KreckCorePatch::ensure();
         foreach (KreckCorePatch::status() as $id => $row) {
             if (($before[$id]['state'] ?? '') === 'pending' && $row['state'] === 'applied') {
-                $note = ['ok', __('KRECK Home is now shown on the main Home page, after the timetable.')];
+                $note = ['ok', __('The KRECK tab is now shown on the main Home page, ahead of the Planner tab.')];
             }
         }
     }
