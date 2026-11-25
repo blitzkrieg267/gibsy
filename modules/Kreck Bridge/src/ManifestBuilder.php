@@ -91,7 +91,7 @@ class KreckManifestBuilder
     }
 
     /** Compact year tag for shortnames, e.g. "2025-2026" -> "2526". */
-    private function syTag(string $syName): string
+    public function syTag(string $syName): string
     {
         if (preg_match_all('/\d{2}(\d{2})/', $syName, $m) && !empty($m[1])) {
             return implode('', $m[1]);
@@ -112,7 +112,7 @@ class KreckManifestBuilder
         return strtolower(self::slug($id)) . '@staff.' . $this->schoolSlug();
     }
 
-    private function studentUsername(array $s): string
+    public function studentUsername(array $s): string
     {
         // studentID is the designated cross-system join key. When the SMS
         // record has no studentID (as in the demo data), fall back to a stable,
@@ -121,13 +121,13 @@ class KreckManifestBuilder
         return !empty($s['studentID']) ? $s['studentID'] : ('GIB' . (int) $s['gibbonPersonID']);
     }
 
-    private function staffUsername(array $u): string
+    public function staffUsername(array $u): string
     {
         return !empty($u['username']) ? $u['username'] : ('staff' . $u['gibbonPersonID']);
     }
 
     /** Deterministic username for a parent/guardian row (keyed on adultID). */
-    private function parentUsername(array $p): string
+    public function parentUsername(array $p): string
     {
         return !empty($p['username']) ? $p['username'] : ('parent' . (int) $p['adultID']);
     }
@@ -392,6 +392,7 @@ class KreckManifestBuilder
 
         $courses = [];
         $courseShortByClassId = [];
+        $shortSeen = [];
         $courseLinks = [];      // shortname => deep-link back to the SMS class (Planner view)
         $categorySeen = [];
         $categories = [];
@@ -407,15 +408,7 @@ class KreckManifestBuilder
                 ];
             }
             // shortname from the meaningful course code + class section, year-tagged.
-            $courseCode = $c['courseShort'] ?: self::slug($c['courseName']);
-            $classCode  = ($c['classShort'] !== '' && $c['classShort'] !== null) ? $c['classShort']
-                        : (($c['className'] !== '' && $c['className'] !== null) ? $c['className'] : $c['gibbonCourseClassID']);
-            $short = strtoupper(self::slug($syTag . '-' . $courseCode . '-' . $classCode));
-            // Guarantee global-ish uniqueness of shortname.
-            if (isset($courseShortByClassId['__shorts'][$short])) {
-                $short .= '-' . (int) $c['gibbonCourseClassID'];
-            }
-            $courseShortByClassId['__shorts'][$short] = true;
+            $short = $this->classShortname($c, $syTag, $shortSeen);
             $courseShortByClassId[$c['gibbonCourseClassID']] = $short;
             $ccid = (int) $c['gibbonCourseClassID'];
             $courseLinks[$short] = [
@@ -507,6 +500,65 @@ class KreckManifestBuilder
     }
 
     /** Readiness summary (counts + data-quality warnings) for the wizard. */
+    /**
+     * The LMS course shortname for a class row (the single rule used by the manifest AND by the event
+     * mirror, so an event always finds the course the manifest created).
+     *
+     * @param array $c row with courseShort, courseName, classShort, className, gibbonCourseClassID
+     * @param string $syTag year tag, e.g. "2526"
+     * @param array $seen shortnames already issued (by reference) — guarantees uniqueness
+     */
+    public function classShortname(array $c, string $syTag, array &$seen): string
+    {
+        $courseCode = $c['courseShort'] ?: self::slug($c['courseName']);
+        $classCode  = ($c['classShort'] !== '' && $c['classShort'] !== null) ? $c['classShort']
+                    : (($c['className'] !== '' && $c['className'] !== null) ? $c['className'] : $c['gibbonCourseClassID']);
+        $short = strtoupper(self::slug($syTag . '-' . $courseCode . '-' . $classCode));
+        // Guarantee global-ish uniqueness of shortname.
+        if (isset($seen[$short])) {
+            $short .= '-' . (int) $c['gibbonCourseClassID'];
+        }
+        $seen[$short] = true;
+        return $short;
+    }
+
+    /**
+     * Every class of a school year with its LMS shortname, in the same order and with the same
+     * collision handling as build(): [gibbonCourseClassID => ['short', 'course', 'class', 'courseID', 'yearGroups']].
+     */
+    public function classCatalog($gibbonSchoolYearID = null): array
+    {
+        $sy = $this->schoolYear($gibbonSchoolYearID);
+        if (!$sy) {
+            return [];
+        }
+        $syid = $sy['gibbonSchoolYearID'];
+        $syTag = $this->syTag((string) $sy['name']);
+        $rows = $this->rows(
+            "SELECT cc.gibbonCourseClassID, cc.name AS className, cc.nameShort AS classShort,
+                    c.gibbonCourseID, c.name AS courseName, c.nameShort AS courseShort, c.gibbonYearGroupIDList
+             FROM gibbonCourseClass cc
+             JOIN gibbonCourse c ON c.gibbonCourseID = cc.gibbonCourseID AND c.gibbonSchoolYearID = :syid
+             LEFT JOIN gibbonDepartment d ON d.gibbonDepartmentID = c.gibbonDepartmentID
+             ORDER BY c.name, cc.name",
+            ['syid' => $syid]
+        );
+        $seen = [];
+        $out = [];
+        foreach ($rows as $c) {
+            $classLabel = ($c['className'] !== '' && $c['className'] !== null)
+                ? (is_numeric($c['className']) ? 'Class ' . $c['className'] : $c['className']) : '';
+            $out[(int) $c['gibbonCourseClassID']] = [
+                'short'      => $this->classShortname($c, $syTag, $seen),
+                'course'     => (string) ($c['courseName'] ?: 'Course'),
+                'class'      => $classLabel,
+                'courseID'   => (int) $c['gibbonCourseID'],
+                'yearGroups' => array_values(array_filter(array_map('trim', explode(',', (string) $c['gibbonYearGroupIDList'])))),
+            ];
+        }
+        return $out;
+    }
+
     public function readiness($gibbonSchoolYearID = null): array
     {
         $sy = $this->schoolYear($gibbonSchoolYearID);

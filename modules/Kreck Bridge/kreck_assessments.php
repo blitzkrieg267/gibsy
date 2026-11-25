@@ -1,5 +1,6 @@
 <?php
 require_once __DIR__ . '/src/Diagnostics.php';
+require_once __DIR__ . '/src/Ui.php';
 KreckBridgeDiagnostics::register(__FILE__);
 
 /*
@@ -151,7 +152,7 @@ ob_start();
         <form class="bar" method="get" action="<?php echo htmlspecialchars($self); ?>">
             <input type="hidden" name="q" value="/modules/Kreck Bridge/kreck_assessments.php">
             <label><?php echo __('School year'); ?>
-                <select name="year" onchange="this.form.submit()">
+                <select data-kpicker name="year" onchange="this.form.submit()">
                     <?php foreach ($years as $schoolYear): ?>
                         <option value="<?php echo (int) $schoolYear['gibbonSchoolYearID']; ?>" <?php echo (int) $schoolYear['gibbonSchoolYearID'] === $yearID ? 'selected' : ''; ?>>
                             <?php echo htmlspecialchars((string) $schoolYear['name']); ?>
@@ -160,7 +161,7 @@ ob_start();
                 </select>
             </label>
             <label><?php echo __('Semester'); ?>
-                <select name="period" onchange="this.form.submit()">
+                <select data-kpicker name="period" onchange="this.form.submit()">
                     <?php foreach (['Semester 1', 'Semester 2'] as $semester): ?>
                         <option value="<?php echo htmlspecialchars($semester); ?>" <?php echo $semester === $period ? 'selected' : ''; ?>><?php echo htmlspecialchars($semester); ?></option>
                     <?php endforeach; ?>
@@ -303,4 +304,4 @@ ob_start();
 })();
 </script>
 <?php
-echo ob_get_clean();
+echo KreckUi::assets() . ob_get_clean();

@@ -1,5 +1,6 @@
 <?php
 require_once __DIR__ . '/src/Diagnostics.php';
+require_once __DIR__ . '/src/Ui.php';
 KreckBridgeDiagnostics::register(__FILE__);
 
 /*
@@ -34,8 +35,8 @@ $kreckAction = $_REQUEST['kreckAction'] ?? '';
 $period = preg_match('/^\d{4}-\d{2}$/', $_REQUEST['period'] ?? '') ? $_REQUEST['period'] : KreckSalaryManager::currentPeriod();
 $notice = null; $error = null;
 
-$currency = $container->get(SettingGateway::class)->getSettingByScope('System', 'currency');
-$curSymbol = preg_replace('/\s*\[.*/', '', (string) $currency);
+// Each payment shows its OWN salary's currency symbol (BWP when none is recorded).
+$paySymbol = fn($p) => KreckSalaryManager::currencySymbol($p['currency'] ?? '');
 
 // ---- Generate period --------------------------------------------------------
 if ($kreckAction === 'generate') {
@@ -94,7 +95,7 @@ if ($kreckAction === 'markPaid' && !empty($_POST['kreckSalaryPaymentID'])) {
         try {
             $receiptLink = '/index.php?q=/modules/Kreck Bridge/kreck_salary_receipt.php&kreckSalaryPaymentID=' . $id;
             $text = sprintf(__('Your salary for %1$s (%2$s%3$s) has been paid. View your receipt.'),
-                KreckSalaryManager::periodLabel($period), $curSymbol, number_format((float) ($_POST['amount'] ?? $pay['amount']), 2));
+                KreckSalaryManager::periodLabel($period), KreckSalaryManager::currencySymbol($pay['currency'] ?? ''), number_format((float) ($_POST['amount'] ?? $pay['amount']), 2));
             $sender = $container->get(NotificationSender::class);
             $sender->addNotification((int) $pay['gibbonPersonID'], $text, 'Kreck Bridge', $receiptLink);
             $event = new NotificationEvent('Kreck Bridge', 'Salary Paid');
@@ -142,7 +143,7 @@ ob_start();
     <form method="get" action="<?php echo htmlspecialchars($self); ?>" style="margin-bottom:12px;display:flex;gap:10px;align-items:center;flex-wrap:wrap">
         <input type="hidden" name="q" value="/modules/Kreck Bridge/kreck_salary_run.php">
         <label><b><?php echo __('Period'); ?>:</b>
-            <select name="period" onchange="this.form.submit()">
+            <select data-kpicker name="period" onchange="this.form.submit()">
                 <?php foreach ($periods as $pk => $pl): ?><option value="<?php echo $pk; ?>" <?php echo $pk === $period ? 'selected' : ''; ?>><?php echo htmlspecialchars($pl); ?></option><?php endforeach; ?>
             </select>
         </label>
@@ -159,7 +160,7 @@ ob_start();
                 <div style="display:flex;gap:14px;flex-wrap:wrap;align-items:flex-end">
                     <label><?php echo __('Amount'); ?><br><input name="amount" type="number" step="0.01" value="<?php echo htmlspecialchars($markPay['amount']); ?>"></label>
                     <label><?php echo __('Payment Date'); ?><br><input name="paymentDate" type="date" value="<?php echo date('Y-m-d'); ?>"></label>
-                    <label><?php echo __('Method'); ?><br><select name="paymentMethod"><option>Bank Transfer</option><option>Cash</option><option>Cheque</option><option>Mobile Money</option><option>Other</option></select></label>
+                    <label><?php echo __('Method'); ?><br><select data-kpicker name="paymentMethod"><option>Bank Transfer</option><option>Cash</option><option>Cheque</option><option>Mobile Money</option><option>Other</option></select></label>
                     <label><?php echo __('Proof of payment'); ?><br><input type="file" name="file" accept=".pdf,.jpg,.jpeg,.png"></label>
                     <button type="submit" class="kbtn amber" name="kreckAction" value="markPaid"><?php echo __('Confirm paid + notify'); ?></button>
                     <a class="kbtn ghost" href="<?php echo htmlspecialchars($self . '&period=' . $period); ?>"><?php echo __('Cancel'); ?></a>
@@ -178,7 +179,7 @@ ob_start();
             $overdue = ($p['status'] !== 'Paid' && !empty($p['dueDate']) && $p['dueDate'] < date('Y-m-d')); ?>
             <tr>
                 <td><?php echo htmlspecialchars(Format::name($p['title'] ?? '', $p['preferredName'], $p['surname'], 'Staff', false)); ?></td>
-                <td><?php echo htmlspecialchars($curSymbol); ?><?php echo number_format((float) $p['amount'], 2); ?></td>
+                <td><?php echo htmlspecialchars($paySymbol($p)); ?><?php echo number_format((float) $p['amount'], 2); ?></td>
                 <td class="<?php echo $overdue ? 'overdue' : ''; ?>"><?php echo htmlspecialchars((string) $p['dueDate']); ?><?php echo $overdue ? ' ⚠' : ''; ?></td>
                 <td><span class="pill <?php echo htmlspecialchars($p['status']); ?>"><?php echo htmlspecialchars($p['status']); ?></span></td>
                 <td>
@@ -195,4 +196,4 @@ ob_start();
     </table>
 </div>
 <?php
-echo ob_get_clean();
+echo KreckUi::assets() . ob_get_clean();

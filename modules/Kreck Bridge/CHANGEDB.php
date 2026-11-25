@@ -536,3 +536,15 @@ INSERT INTO gibbonPermission (gibbonRoleID,gibbonActionID)
  FROM gibbonRole r WHERE r.name IN ('Administrator','Teacher')
  AND NOT EXISTS (SELECT 1 FROM gibbonPermission p WHERE p.gibbonRoleID=r.gibbonRoleID AND p.gibbonActionID=(SELECT gibbonActionID FROM gibbonAction WHERE name='Pull Marks from LMS' AND gibbonModuleID=(SELECT gibbonModuleID FROM gibbonModule WHERE name='Kreck Bridge')));end
 ";
+
+// -> 0.5.34: BWP is the default currency everywhere + searchable pickers + Kreck Home on the main Home
+// page + the SMS->LMS event mirror ledger. Every statement is idempotent and non-destructive.
+++ $count;
+$sql[$count][0] = '0.5.34';
+$sql[$count][1] = "
+UPDATE kreckSalary SET currency='BWP' WHERE currency IS NULL OR currency='';end
+ALTER TABLE kreckSalary MODIFY COLUMN currency VARCHAR(3) NOT NULL DEFAULT 'BWP';end
+UPDATE gibbonSetting SET value='BWP P' WHERE scope='System' AND name='currency' AND (value IS NULL OR TRIM(value)='' OR value='USD $');end
+CREATE TABLE IF NOT EXISTS kreckEventLedger (sourceID VARCHAR(190) NOT NULL, kind VARCHAR(30) NOT NULL DEFAULT '', eventDate DATE NULL, contentHash CHAR(40) NOT NULL, status ENUM('Synced','Pending','Skipped','Failed') NOT NULL DEFAULT 'Pending', message VARCHAR(255) NULL, timestampSynced DATETIME NULL, timestampUpdated TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP, PRIMARY KEY (sourceID), KEY eventDate (eventDate), KEY status (status)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;end
+CREATE TABLE IF NOT EXISTS kreckEventRun (kreckEventRunID INT UNSIGNED AUTO_INCREMENT, started DATETIME NOT NULL, finished DATETIME NULL, `trigger` VARCHAR(20) NOT NULL DEFAULT 'manual', ok ENUM('Y','N') NOT NULL DEFAULT 'N', summary TEXT NULL, PRIMARY KEY (kreckEventRunID)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;end
+";

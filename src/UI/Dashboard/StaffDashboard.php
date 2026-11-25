@@ -211,15 +211,24 @@ class StaffDashboard implements OutputableInterface, ContainerAwareInterface
             ++$formGroupCount;
         }
 
+        // KRECK-PATCH-BEGIN home-panel — managed by the Kreck Bridge module (src/CorePatch.php); re-apply from KRECK Home after a Gibbon upgrade
+        $kreckHome = '';
+        if (is_file($kreckHook = $this->session->get('absolutePath').'/modules/Kreck Bridge/src/HomeHook.php')) {
+            try { include_once $kreckHook; $kreckHome = kreck_home_hook($guid, $connection2, $this->session); } catch (\Throwable $e) { $kreckHome = ''; }
+        }
+        // KRECK-PATCH-END home-panel
+
         // TABS
         $tabs = [];
 
         if (!empty($planner) || !empty($timetable)) {
             $tabs['Planner'] = [
                 'label'   => __('Planner'),
-                'content' => $planner.$timetable,
+                'content' => $planner.$timetable.$kreckHome, // KRECK-PATCH home-panel: Kreck Home directly after the timetable
                 'icon'    => 'book-open',
             ];
+        } elseif ($kreckHome !== '') { // KRECK-PATCH home-panel: staff without Planner/Timetable still get Kreck Home
+            $tabs['KRECK'] = ['label' => 'KRECK', 'content' => $kreckHome, 'icon' => 'home'];
         }
 
         if (count($formGroups) > 0) {

@@ -41,8 +41,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && in_array($kreckAction, ['approve', 
 
 $pending = $manager->pendingSalaries();
 $recent = $manager->recentDecisions(12);
-$currency = $container->get(\Gibbon\Domain\System\SettingGateway::class)->getSettingByScope('System', 'currency');
-$defaultCurCode = KreckSalaryManager::currencyCodeFromSetting($currency) ?: 'USD';
+// BWP POLICY: a salary with no recorded currency is BWP — never the school-wide setting, never USD.
+$defaultCurCode = KreckSalaryManager::DEFAULT_CURRENCY;
 $rowSymbol = fn($code) => KreckSalaryManager::currencySymbol($code ?: $defaultCurCode);
 
 $page->breadcrumbs->add(__('Salary Approvals'));

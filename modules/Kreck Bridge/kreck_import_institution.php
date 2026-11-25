@@ -1,5 +1,6 @@
 <?php
 require_once __DIR__ . '/src/Diagnostics.php';
+require_once __DIR__ . '/src/Ui.php';
 KreckBridgeDiagnostics::register(__FILE__);
 
 /*
@@ -273,7 +274,7 @@ ob_start();
                 <input type="hidden" name="progressToken" value="<?php echo htmlspecialchars($formProgressToken); ?>">
                 <input type="file" name="file" accept=".xlsx,.xls,.ods" required>
                 <label style="margin-left:10px"><?php echo __('Mode'); ?>:
-                    <select name="mode">
+                    <select data-kpicker name="mode">
                         <option value="sync"><?php echo __('Update &amp; Insert'); ?></option>
                         <option value="insert"><?php echo __('Insert only'); ?></option>
                         <option value="update"><?php echo __('Update only'); ?></option>
@@ -412,4 +413,4 @@ ob_start();
 })();
 </script>
 <?php
-echo ob_get_clean();
+echo KreckUi::assets() . ob_get_clean();

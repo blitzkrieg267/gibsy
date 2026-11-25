@@ -1,5 +1,6 @@
 <?php
 require_once __DIR__ . '/src/Diagnostics.php';
+require_once __DIR__ . '/src/Ui.php';
 KreckBridgeDiagnostics::register(__FILE__);
 
 /*
@@ -659,7 +660,7 @@ ob_start();
             <tr>
                 <td style="width:38%"><b><?php echo __('School Year'); ?></b></td>
                 <td>
-                    <select name="gibbonSchoolYearID" onchange="this.form.download.value='';this.form.submit();">
+                    <select data-kpicker name="gibbonSchoolYearID" onchange="this.form.download.value='';this.form.submit();">
                         <?php foreach ($years as $y): ?>
                             <option value="<?php echo $y['gibbonSchoolYearID']; ?>"
                                 <?php echo ((string)$y['gibbonSchoolYearID'] === (string)($readiness['_syid'] ?? $selectedYear) || ($selectedYear === null && $y['status'] === 'Current')) ? 'selected' : ''; ?>>
@@ -693,7 +694,7 @@ ob_start();
         <input type="hidden" name="limitClasses" value="<?php echo (int) $limitClasses; ?>">
         <p>
             <label for="existingcoursepolicy"><b><?php echo __('Existing LMS courses'); ?></b></label><br>
-            <select id="existingcoursepolicy" name="existingcoursepolicy">
+            <select data-kpicker id="existingcoursepolicy" name="existingcoursepolicy">
                 <option value="block" <?php echo $existingCoursePolicy === 'block' ? 'selected' : ''; ?>><?php echo __('Stop if a course shortname already exists'); ?></option>
                 <option value="merge" <?php echo $existingCoursePolicy === 'merge' ? 'selected' : ''; ?>><?php echo __('Merge into matching courses without deleting existing content'); ?></option>
             </select>
@@ -829,4 +830,4 @@ ob_start();
 })();
 </script>
 <?php
-echo ob_get_clean();
+echo KreckUi::assets() . ob_get_clean();

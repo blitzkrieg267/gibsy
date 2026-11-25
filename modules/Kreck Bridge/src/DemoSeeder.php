@@ -437,6 +437,12 @@ class KreckDemoSeeder
                     $c = $res['counts'] ?? ($res['created'] ?? []);
                     $summary = is_array($c) ? implode(', ', array_map(fn($k, $v) => "$k $v", array_keys($c), array_values($c))) : '';
                     $this->say('Export → LMS: synced' . ($summary !== '' ? " ($summary)" : ' (manifest accepted)') . '.');
+                    // Timetable periods, lessons, closures and term dates → the LMS calendar (rolling window).
+                    require_once __DIR__ . '/EventSync.php';
+                    $ev = (new KreckEventSync($pdo, $settings))->run(['trigger' => 'seed', 'maxBatches' => 10]);
+                    $this->say($ev['ok']
+                        ? sprintf('Events → LMS calendar: %d new, %d updated, %d removed (%s).', $ev['created'], $ev['updated'], $ev['deleted'], $ev['window'] ?: 'no events in the window')
+                        : 'Events → LMS calendar: ' . ($ev['error'] ?: 'did not complete') . ' — the scheduled sync will retry.');
                 }
             }
         } catch (\Throwable $e) { $this->failPhase('export sync', $e); }

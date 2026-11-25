@@ -1,5 +1,6 @@
 <?php
 require_once __DIR__ . '/src/Diagnostics.php';
+require_once __DIR__ . '/src/Ui.php';
 KreckBridgeDiagnostics::register(__FILE__);
 
 /*
@@ -105,7 +106,7 @@ ob_start();
     <form method="get" action="<?php echo htmlspecialchars($self); ?>" style="margin-bottom:10px">
         <input type="hidden" name="q" value="/modules/Kreck Bridge/kreck_import.php">
         <label><b><?php echo __('Data type'); ?>:</b>
-            <select name="type" onchange="this.form.submit()">
+            <select data-kpicker name="type" onchange="this.form.submit()">
                 <?php
                 $grp = '';
                 foreach ($registry as $e) {
@@ -156,7 +157,7 @@ ob_start();
                                 <?php foreach ($cols as $c): $val = (string) ($r[$c['field']] ?? ''); ?>
                                     <td>
                                     <?php if (!empty($c['options'])): ?>
-                                        <select data-field="<?php echo htmlspecialchars($c['field']); ?>">
+                                        <select data-kpicker data-field="<?php echo htmlspecialchars($c['field']); ?>">
                                             <option value="">— <?php echo __('select'); ?> —</option>
                                             <?php foreach ($c['options'] as $opt): ?>
                                                 <option value="<?php echo htmlspecialchars($opt['value']); ?>"<?php echo $val === (string) $opt['value'] ? ' selected' : ''; ?>><?php echo htmlspecialchars($opt['label']); ?></option>
@@ -190,7 +191,7 @@ ob_start();
             <p><?php echo __('Upload .csv, .xlsx, .xls or .ods. Column headers are matched to fields by name (case-insensitive). Use the blank template above for a guaranteed match.'); ?></p>
             <input type="file" name="file" accept=".csv,.xlsx,.xls,.ods" required>
             <label style="margin-left:10px"><?php echo __('Mode'); ?>:
-                <select name="mode">
+                <select data-kpicker name="mode">
                     <option value="sync"><?php echo __('Update &amp; Insert'); ?></option>
                     <option value="insert"><?php echo __('Insert only'); ?></option>
                     <option value="update"><?php echo __('Update only'); ?></option>
@@ -244,7 +245,7 @@ ob_start();
     var cols = <?php echo json_encode(array_map(fn($c) => ['field' => $c['field'], 'options' => $c['options'] ?? null], $cols), JSON_UNESCAPED_UNICODE); ?>;
     function cellHtml(col) {
         if (col.options && col.options.length) {
-            var h = '<td><select data-field="' + col.field + '"><option value="">— <?php echo __('select'); ?> —</option>';
+            var h = '<td><select data-kpicker data-field="' + col.field + '"><option value="">— <?php echo __('select'); ?> —</option>';
             col.options.forEach(function (o) {
                 var v = String(o.value).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
                 var l = String(o.label).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
@@ -297,4 +298,4 @@ ob_start();
 })();
 </script>
 <?php
-echo ob_get_clean();
+echo KreckUi::assets() . ob_get_clean();

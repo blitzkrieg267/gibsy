@@ -1,5 +1,6 @@
 <?php
 require_once __DIR__ . '/src/Diagnostics.php';
+require_once __DIR__ . '/src/Ui.php';
 KreckBridgeDiagnostics::register(__FILE__);
 
 /*
@@ -103,6 +104,14 @@ $studentsList->execute(['syid' => $syid]);
 $studentsList = $studentsList->fetchAll(\PDO::FETCH_ASSOC);
 
 $e = fn($s) => htmlspecialchars((string) $s, ENT_QUOTES, 'UTF-8');
+// Searchable student picker: value => [label, meta].
+$studentOptions = [];
+foreach ($studentsList as $sl) {
+    $studentOptions[(string) (int) $sl['gibbonPersonID']] = [
+        $sl['surname'] . ', ' . $sl['preferredName'],
+        ($sl['studentID'] !== '' ? $sl['studentID'] : 'GIB' . (int) $sl['gibbonPersonID']),
+    ];
+}
 $lmsConfigured = (stripos((string) ($settings['moodleEndpoint'] ?? ''), 'https://') === 0) && trim((string) ($settings['moodleToken'] ?? '')) !== '';
 
 ob_start();
@@ -146,14 +155,11 @@ ob_start();
     <form method="post" action="<?php echo $e($self); ?>" style="display:flex;flex-wrap:wrap;align-items:center;gap:.4rem;">
       <input type="hidden" name="kreckAction" value="pull">
       <label for="gibbonPersonID" style="font-weight:600;color:#0f2233;"><?php echo $e(__('Student')); ?>:</label>
-      <select name="gibbonPersonID" id="gibbonPersonID" required>
-        <option value=""><?php echo $e(__('— choose a student —')); ?></option>
-        <?php foreach ($studentsList as $s) {
-            $label = $s['surname'] . ', ' . $s['preferredName'] . ($s['studentID'] !== '' ? ' (' . $s['studentID'] . ')' : '');
-            $sel = ((int) $s['gibbonPersonID'] === $selectedPID) ? ' selected' : ''; ?>
-          <option value="<?php echo (int) $s['gibbonPersonID']; ?>"<?php echo $sel; ?>><?php echo $e($label); ?></option>
-        <?php } ?>
-      </select>
+      <?php echo KreckUi::select('gibbonPersonID', $studentOptions, (string) $selectedPID, [
+          'id' => 'gibbonPersonID', 'required' => true, 'blank' => '',
+          'placeholder' => __('Choose a student — or type to search…'),
+          'message' => __('Please choose a student.'),
+      ]); ?>
       <button type="submit" class="kbtn"<?php echo $lmsConfigured ? '' : ' disabled'; ?>><?php echo $e(__('Pull marks')); ?></button>
     </form>
   </div>
@@ -222,4 +228,4 @@ ob_start();
   <?php } ?>
 </div>
 <?php
-echo ob_get_clean();
+echo KreckUi::assets() . ob_get_clean();

@@ -12,4 +12,4 @@ $coreVersion is intentionally omitted (no minimum-core requirement), so the
 module installs/updates on any supported SMS (tested v30.0.01 and v31).
 */
 
-$moduleVersion = '0.5.33';
+$moduleVersion = '0.5.34';

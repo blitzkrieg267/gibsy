@@ -100,8 +100,8 @@ $form->addRow()->addHeading('Payroll', __('Payroll'));
 $s = $get('payrollOfficer');
 $row = $form->addRow();
     $row->addLabel($s['name'], __('Payroll Officer'))
-        ->description(__('Optional. gibbonPersonID of the staff member nudged by the salary reminder about due/overdue payments.'));
-    $row->addTextField($s['name'])->setValue($s['value'])->maxLength(12);
+        ->description(__('Optional. The staff member nudged by the salary reminder about due and overdue payments. Open the list to browse, or type to search.'));
+    $row->addSelectStaff($s['name'])->selected($s['value'])->placeholder(__('Choose a staff member…'));
 
 $row = $form->addRow();
     $row->addFooter();

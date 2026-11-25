@@ -16,6 +16,7 @@ finance/admin only.
 
 require_once __DIR__ . '/src/SalaryManager.php';
 require_once __DIR__ . '/src/InstitutionImporter.php';
+require_once __DIR__ . '/src/Ui.php';
 
 use Gibbon\Contracts\Database\Connection;
 use Gibbon\Services\Format;
@@ -64,19 +65,32 @@ if ($kreckAction === 'saveOne') {
     if ($startDate === '') {
         $failed[] = ['row' => 1, 'msg' => __('A start date is required.')];
     }
+    // The pickers only offer valid values; re-check on the server so a hand-built POST cannot slip past.
+    $currency = KreckSalaryManager::normaliseCurrency($_POST['currency'] ?? '');   // blank → BWP
+    if ($currency === null) {
+        $failed[] = ['row' => 1, 'msg' => __('Choose a currency from the list.')];
+    }
+    $frequency = KreckSalaryManager::normaliseFrequency($_POST['frequency'] ?? '');
+    if ($frequency === null) {
+        $failed[] = ['row' => 1, 'msg' => __('Choose a pay frequency from the list.')];
+    }
+    $payDay = KreckSalaryManager::normalisePayDay($_POST['payDay'] ?? '');
+    if ($payDay === -1) {
+        $failed[] = ['row' => 1, 'msg' => __('Pay day must be a day of the month from 1 to 28.')];
+    }
     $created = 0;
     if (empty($failed)) {
         $manager->saveSalary([
             'gibbonPersonID' => $resolved,
             'amount'    => $amount,
-            'frequency' => $_POST['frequency'] ?? 'Monthly',
-            'payDay'    => $_POST['payDay'] ?? null,
+            'frequency' => $frequency,
+            'payDay'    => $payDay,
             'startDate' => $startDate,
             'endDate'   => $_POST['endDate'] ?? null,
             'status'    => 'Active',
-            'currency'  => $_POST['currency'] ?? null,
+            'currency'  => $currency,
             'category'  => $_POST['category'] ?? null,
-            'tags'      => $_POST['tags'] ?? null,
+            'tags'      => $_POST['tags'] ?? null,   // string (file upload) or array (tag picker)
             'notes'     => $_POST['notes'] ?? null,
         ], (int) $session->get('gibbonPersonID'));
         $created = 1;
@@ -116,11 +130,22 @@ if ($kreckAction === 'saveFile') {
             $failed[] = ['row' => $i + 1, 'msg' => sprintf(__('Staff not found: %s'), $token)];
             continue;
         }
+        // Same rules as the form: blank currency → BWP; an unknown currency/frequency/pay day is reported, not guessed.
+        $rowCur = KreckSalaryManager::normaliseCurrency($r['currency'] ?? '');
+        $rowFreq = KreckSalaryManager::normaliseFrequency($r['frequency'] ?? '');
+        $rowDay = KreckSalaryManager::normalisePayDay($r['payDay'] ?? '');
+        if ($rowCur === null || $rowFreq === null || $rowDay === -1) {
+            $failed[] = ['row' => $i + 1, 'msg' => sprintf(
+                __('Row %d: unrecognised %s.'), $i + 1,
+                $rowCur === null ? __('currency') . ' “' . ($r['currency'] ?? '') . '”'
+                    : ($rowFreq === null ? __('frequency') . ' “' . ($r['frequency'] ?? '') . '”' : __('pay day (use 1–28)')))];
+            continue;
+        }
         $manager->saveSalary([
             'gibbonPersonID' => $pid, 'amount' => $amount,
-            'frequency' => $r['frequency'] ?: 'Monthly', 'payDay' => $r['payDay'] ?: null,
+            'frequency' => $rowFreq, 'payDay' => $rowDay,
             'startDate' => $r['startDate'], 'endDate' => $r['endDate'] ?? null, 'status' => 'Active',
-            'currency' => $r['currency'] ?? null,
+            'currency' => $rowCur,
             'category' => $r['category'] ?? null, 'tags' => $r['tags'] ?? null, 'notes' => $r['notes'] ?? null,
         ], (int) $session->get('gibbonPersonID'));
         $created++;
@@ -150,15 +175,28 @@ $commonCats = ['Teaching', 'Administration', 'Support', 'Management', 'Allowance
 $categoryList = array_values(array_unique(array_merge($manager->salaryCategories(), $commonCats)));
 sort($categoryList);
 
-$currency = $container->get(\Gibbon\Domain\System\SettingGateway::class)->getSettingByScope('System', 'currency');
-$defaultCurCode = KreckSalaryManager::currencyCodeFromSetting($currency) ?: 'USD';
-$curCatalog = KreckSalaryManager::currencyCatalog();
-// Make sure the school's own configured currency is always offered (and first).
-if ($defaultCurCode !== '' && !isset($curCatalog[$defaultCurCode])) {
-    $curCatalog = [$defaultCurCode => [$defaultCurCode, $defaultCurCode]] + $curCatalog;
+// BWP POLICY: the form always opens on Botswana Pula, whatever the school-wide setting says.
+// Other currencies stay in the (searchable) list as a deliberate exception.
+$defaultCurCode = KreckSalaryManager::DEFAULT_CURRENCY;
+$curCatalog = KreckSalaryManager::currencyCatalog();            // BWP is first in the catalogue
+$curOptions = [];
+foreach ($curCatalog as $code => $info) {
+    $curOptions[$code] = [$code . ' — ' . $info[1], $info[0]];   // label + symbol as meta
 }
 $curSymbol = KreckSalaryManager::currencySymbol($defaultCurCode);
 $rowSymbol = fn($code) => KreckSalaryManager::currencySymbol($code ?: $defaultCurCode);
+
+// Option lists for the searchable pickers.
+$staffOptions = [];
+foreach ($staffData as $sd) {
+    $staffOptions[$sd['id']] = [$sd['name'], trim(($sd['user'] ? '@' . $sd['user'] : '') . ($sd['job'] ? ' · ' . $sd['job'] : '') . ($sd['mail'] ? ' · ' . $sd['mail'] : ''), ' ·')];
+}
+$freqOptions = array_combine(KreckSalaryManager::FREQUENCIES, KreckSalaryManager::FREQUENCIES);
+$dayOptions = [];
+for ($d = 1; $d <= 28; $d++) { $dayOptions[(string) $d] = (string) $d; }
+$categoryOptions = array_combine($categoryList, $categoryList);
+$tagList = $manager->salaryTags();
+$tagOptions = array_combine($tagList, $tagList);
 
 $page->breadcrumbs->add(__('Staff Salaries'));
 
@@ -197,21 +235,11 @@ ob_start();
 @media(max-width:620px){.kwiz .grid2{grid-template-columns:1fr}}
 .kwiz .nav{display:flex;gap:8px;margin-top:16px;align-items:center}
 .kwiz .req{color:#d64545}
-/* Searchable combobox */
-.kcombo{position:relative}
-.kcombo-list{list-style:none;margin:4px 0 0;padding:4px;border:1px solid #d9e1e8;border-radius:8px;max-height:260px;overflow:auto;position:absolute;z-index:20;background:#fff;width:100%;box-shadow:0 12px 30px rgba(15,30,46,.14)}
-.kcombo-list li{padding:8px 10px;border-radius:6px;cursor:pointer}
-.kcombo-list li:hover,.kcombo-list li.hi{background:#f0f1e6}
-.kcombo-list li .nm{font-weight:700;color:#10150d;font-size:14px}
-.kcombo-list li .meta{font-size:12px;color:#5a6b7b}
-.kcombo-list li .meta b{color:#42571d;font-weight:700}
-.kcombo-chosen{margin-top:8px;padding:10px 12px;border:1px solid #d9e3cf;background:#f4f7ec;border-radius:10px;display:flex;align-items:center;gap:10px}
-.kcombo-chosen .nm{font-weight:800;color:#10150d}.kcombo-chosen .meta{font-size:12px;color:#5a6b7b}
-.kcombo-chosen .chg{margin-left:auto;color:#42571d;font-weight:700;cursor:pointer;text-decoration:underline}
-.kcombo-empty{padding:10px;color:#5a6b7b;font-size:13px}
+/* Searchable dropdowns come from the shared picker (css/kreck-picker.css via KreckUi::assets()). */
 .kreview dt{font-size:12px;text-transform:uppercase;letter-spacing:.04em;color:#5a6b7b;margin-top:8px}
 .kreview dd{margin:2px 0 0;font-weight:700;color:#10150d}
 </style>
+<?php echo KreckUi::assets(); ?>
 <div class="ksal">
     <p><?php echo __('Record a staff member\'s recurring salary. Finance enters each salary here; it becomes payroll-eligible only after a school administrator approves it.'); ?>
        &nbsp;<a class="kbtn ghost" href="<?php echo htmlspecialchars($runURL); ?>"><?php echo __('Payroll run →'); ?></a>
@@ -258,7 +286,6 @@ ob_start();
     <form method="post" action="<?php echo htmlspecialchars($self); ?>" id="salForm" class="kwiz">
         <input type="hidden" name="q" value="/modules/Kreck Bridge/kreck_salary.php">
         <input type="hidden" name="kreckAction" value="saveOne">
-        <input type="hidden" name="gibbonPersonID" id="gibbonPersonID">
 
         <div class="steps">
             <div class="s active" data-stepdot="1"><span class="n">1</span><?php echo __('Find staff'); ?></div>
@@ -268,16 +295,16 @@ ob_start();
 
         <!-- Step 1: searchable staff picker -->
         <div class="panel active" data-step="1">
-            <label for="staffSearch"><?php echo __('Search staff'); ?> <span class="req">*</span></label>
-            <div class="kcombo">
-                <input type="text" id="staffSearch" autocomplete="off" placeholder="<?php echo __('Type a name, username, email or job title…'); ?>">
-                <ul class="kcombo-list" id="staffResults" hidden></ul>
-            </div>
-            <div class="kcombo-chosen" id="staffChosen" hidden></div>
-            <p class="emphasis small"><?php echo sprintf(__('%d active staff. Search matches name, username, email and job title, so people who share a name are easy to tell apart.'), count($staffData)); ?></p>
+            <label for="gibbonPersonID"><?php echo __('Staff member'); ?> <span class="req">*</span></label>
+            <?php echo KreckUi::select('gibbonPersonID', $staffOptions, '', [
+                'id' => 'gibbonPersonID', 'required' => true, 'blank' => '',
+                'placeholder' => __('Choose a staff member — or type to search…'),
+                'message' => __('Please choose a staff member.'),
+            ]); ?>
+            <p class="emphasis small"><?php echo sprintf(__('%d active staff. Open the list to browse everyone, or type to search by name, username, email or job title so people who share a name are easy to tell apart.'), count($staffData)); ?></p>
             <div class="nav">
                 <span style="flex:1"></span>
-                <button type="button" class="kbtn" data-next="2" id="toStep2" disabled><?php echo __('Next →'); ?></button>
+                <button type="button" class="kbtn" data-next="2" id="toStep2"><?php echo __('Next →'); ?></button>
             </div>
         </div>
 
@@ -289,20 +316,16 @@ ob_start();
                     <input type="number" name="amount" id="amount" step="0.01" min="0.01" inputmode="decimal" placeholder="8500.00">
                 </div>
                 <div>
-                    <label><?php echo __('Currency'); ?></label>
-                    <select name="currency" id="currency">
-                        <?php foreach ($curCatalog as $code => $info): ?>
-                            <option value="<?php echo htmlspecialchars($code); ?>"<?php echo $code === $defaultCurCode ? ' selected' : ''; ?>><?php echo htmlspecialchars($code . ' — ' . $info[1]); ?></option>
-                        <?php endforeach; ?>
-                    </select>
+                    <label for="currency"><?php echo __('Currency'); ?> <span class="emphasis small">(<?php echo __('BWP unless you change it'); ?>)</span></label>
+                    <?php echo KreckUi::select('currency', $curOptions, $defaultCurCode, ['id' => 'currency', 'placeholder' => __('Currency')]); ?>
                 </div>
                 <div>
-                    <label><?php echo __('Frequency'); ?></label>
-                    <select name="frequency" id="frequency"><option>Monthly</option><option>Fortnightly</option><option>Weekly</option><option>Termly</option><option>Annually</option><option>Once</option></select>
+                    <label for="frequency"><?php echo __('Frequency'); ?></label>
+                    <?php echo KreckUi::select('frequency', $freqOptions, 'Monthly', ['id' => 'frequency']); ?>
                 </div>
                 <div>
-                    <label><?php echo __('Pay day of month'); ?> (1–28)</label>
-                    <input type="number" name="payDay" id="payDay" min="1" max="28" placeholder="25">
+                    <label for="payDay"><?php echo __('Pay day of month'); ?> (1–28)</label>
+                    <?php echo KreckUi::select('payDay', $dayOptions, '25', ['id' => 'payDay', 'blank' => __('— none —'), 'placeholder' => __('Pick the day')]); ?>
                 </div>
                 <div>
                     <label><?php echo __('Start date'); ?> <span class="req">*</span></label>
@@ -313,13 +336,18 @@ ob_start();
                     <input type="date" name="endDate" id="endDate">
                 </div>
                 <div>
-                    <label><?php echo __('Category'); ?></label>
-                    <input type="text" name="category" id="category" list="catList" placeholder="<?php echo __('e.g. Teaching, Administration…'); ?>">
-                    <datalist id="catList"><?php foreach ($categoryList as $c): ?><option value="<?php echo htmlspecialchars($c); ?>"><?php endforeach; ?></datalist>
+                    <label for="category"><?php echo __('Category'); ?></label>
+                    <?php echo KreckUi::select('category', $categoryOptions, '', [
+                        'id' => 'category', 'create' => true, 'blank' => __('— none —'),
+                        'placeholder' => __('Pick a category, or type to add a new one…'),
+                    ]); ?>
                 </div>
             </div>
-            <label><?php echo __('Tags'); ?> (<?php echo __('comma-separated — for finance to filter and manage later'); ?>)</label>
-            <input type="text" name="tags" id="tags" placeholder="<?php echo __('e.g. full-time, department-science, contract-2026'); ?>">
+            <label for="tags"><?php echo __('Tags'); ?> (<?php echo __('pick existing tags or type to add new ones — for finance to filter and manage later'); ?>)</label>
+            <?php echo KreckUi::select('tags[]', $tagOptions, [], [
+                'id' => 'tags', 'multiple' => true, 'create' => true,
+                'placeholder' => __('e.g. full-time, department-science, contract-2026'),
+            ]); ?>
             <label><?php echo __('Notes'); ?></label>
             <textarea name="notes" id="notes" rows="2"></textarea>
             <div class="nav">
@@ -344,7 +372,7 @@ ob_start();
     <h3 style="margin-top:22px"><?php echo __('…or upload a file'); ?></h3>
     <form method="post" action="<?php echo htmlspecialchars($self); ?>" enctype="multipart/form-data" style="padding:12px 14px;background:#f8fbfb;border:1px solid #e2e8ee;border-radius:8px">
         <input type="hidden" name="q" value="/modules/Kreck Bridge/kreck_salary.php">
-        <p class="emphasis small" style="margin-top:0"><?php echo __('Upload a .csv or .xlsx. Columns: Staff, Amount, Frequency, Pay Day, Start Date, End Date, Category, Tags, Notes. Uploaded rows are also saved as Pending.'); ?>
+        <p class="emphasis small" style="margin-top:0"><?php echo __('Upload a .csv or .xlsx. Columns: Staff, Amount, Currency, Frequency, Pay Day, Start Date, End Date, Category, Tags, Notes. A blank Currency means BWP. Uploaded rows are also saved as Pending.'); ?>
            <a href="<?php echo htmlspecialchars($self . '&kreckAction=template'); ?>"><?php echo __('Download blank template'); ?></a>.</p>
         <input type="file" name="file" accept=".csv,.xlsx,.xls,.ods" required>
         <button type="submit" class="kbtn" name="kreckAction" value="saveFile" style="margin-left:8px"><?php echo __('Upload salaries'); ?></button>
@@ -352,91 +380,52 @@ ob_start();
 </div>
 <script>
 (function(){
-  var STAFF = <?php echo json_encode($staffData, JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP); ?>;
   var CURMAP = <?php echo json_encode(array_map(fn($i) => $i[0], $curCatalog), JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP); ?>;
-  function curCode(){ var el=document.getElementById('currency'); return el? el.value : '<?php echo $defaultCurCode; ?>'; }
-  function curSym(){ var c=curCode(); return CURMAP[c]||c; }
   var form = document.getElementById('salForm');
-  var hidId = document.getElementById('gibbonPersonID');
-  var search = document.getElementById('staffSearch');
-  var list = document.getElementById('staffResults');
-  var chosen = document.getElementById('staffChosen');
-  var toStep2 = document.getElementById('toStep2');
-  var hi = -1, matches = [];
-
+  var staff = document.getElementById('gibbonPersonID');
   function esc(s){var d=document.createElement('div');d.textContent=s==null?'':String(s);return d.innerHTML;}
-  function hl(text, q){ if(!q) return esc(text); var i=String(text).toLowerCase().indexOf(q.toLowerCase()); if(i<0) return esc(text); return esc(String(text).slice(0,i))+'<b>'+esc(String(text).slice(i,i+q.length))+'</b>'+esc(String(text).slice(i+q.length)); }
+  function v(id){ var e=document.getElementById(id); return e ? (e.value||'').trim() : ''; }
+  function label(id){ var e=document.getElementById(id); if(!e||e.selectedIndex<0) return ''; var o=e.options[e.selectedIndex]; return o&&o.value!==''?o.textContent.trim():''; }
+  function curCode(){ return v('currency') || '<?php echo $defaultCurCode; ?>'; }
+  function curSym(){ var c=curCode(); return CURMAP[c]||c; }
 
-  function render(q){
-    q=q.trim();
-    if(q===''){ list.hidden=true; matches=[]; return; }
-    var ql=q.toLowerCase();
-    matches = STAFF.filter(function(s){
-      return (s.name+' '+s.user+' '+s.mail+' '+s.job).toLowerCase().indexOf(ql)>=0;
-    }).slice(0,40);
-    if(matches.length===0){ list.innerHTML='<li class="kcombo-empty"><?php echo __('No staff match that search.'); ?></li>'; list.hidden=false; return; }
-    list.innerHTML = matches.map(function(s,idx){
-      var meta=[]; if(s.user)meta.push('@'+hl(s.user,q)); if(s.job)meta.push(hl(s.job,q)); if(s.mail)meta.push(hl(s.mail,q));
-      return '<li data-i="'+idx+'"><span class="nm">'+hl(s.name,q)+'</span><div class="meta">'+meta.join(' · ')+'</div></li>';
-    }).join('');
-    hi=-1; list.hidden=false;
-  }
-  function choose(s){
-    hidId.value=s.id;
-    var meta=[]; if(s.user)meta.push('@'+esc(s.user)); if(s.job)meta.push(esc(s.job)); if(s.mail)meta.push(esc(s.mail));
-    chosen.innerHTML='<div><div class="nm">'+esc(s.name)+'</div><div class="meta">'+meta.join(' · ')+'</div></div><span class="chg" id="chgStaff"><?php echo __('Change'); ?></span>';
-    chosen.hidden=false; search.hidden=true; list.hidden=true; toStep2.disabled=false;
-    document.getElementById('chgStaff').addEventListener('click',function(){ chosen.hidden=true; search.hidden=false; search.value=''; search.focus(); hidId.value=''; toStep2.disabled=true; });
-  }
-  search.addEventListener('input',function(){ render(this.value); });
-  search.addEventListener('keydown',function(e){
-    if(list.hidden) return;
-    var items=list.querySelectorAll('li[data-i]');
-    if(e.key==='ArrowDown'){e.preventDefault();hi=Math.min(hi+1,items.length-1);}
-    else if(e.key==='ArrowUp'){e.preventDefault();hi=Math.max(hi-1,0);}
-    else if(e.key==='Enter'){ if(hi>=0&&matches[hi]){e.preventDefault();choose(matches[hi]);} return; }
-    else return;
-    items.forEach(function(el){el.classList.remove('hi');}); if(items[hi]){items[hi].classList.add('hi');items[hi].scrollIntoView({block:'nearest'});}
-  });
-  list.addEventListener('click',function(e){ var li=e.target.closest('li[data-i]'); if(li){ choose(matches[+li.dataset.i]); } });
-  document.addEventListener('click',function(e){ if(!e.target.closest('.kcombo')) list.hidden=true; });
-
-  // Step navigation
   function go(n){
     form.querySelectorAll('.panel').forEach(function(p){p.classList.toggle('active', p.dataset.step==String(n));});
     form.querySelectorAll('.steps .s').forEach(function(s){ var d=+s.dataset.stepdot; s.classList.toggle('active', d==n); s.classList.toggle('done', d<n); });
     if(n===3) buildReview();
   }
-  form.addEventListener('click',function(e){
-    var nx=e.target.closest('[data-next]'), bk=e.target.closest('[data-back]');
-    if(nx){ if(nx.dataset.next==='2' && !hidId.value){ return; }
-            if(nx.dataset.next==='3' && !validStep2()){ return; } go(+nx.dataset.next); }
-    if(bk){ go(+bk.dataset.back); }
-  });
   function validStep2(){
     var amt=document.getElementById('amount'), sd=document.getElementById('startDate');
-    var ok=true;
-    if(!(parseFloat(amt.value)>0)){ amt.focus(); amt.reportValidity&&amt.reportValidity(); ok=false; }
-    else if(!sd.value){ sd.focus(); sd.reportValidity&&sd.reportValidity(); ok=false; }
-    return ok;
+    if(!(parseFloat(amt.value)>0)){ amt.focus(); amt.reportValidity&&amt.reportValidity(); return false; }
+    if(!sd.value){ sd.focus(); sd.reportValidity&&sd.reportValidity(); return false; }
+    return true;
   }
-  function v(id){return (document.getElementById(id).value||'').trim();}
+  form.addEventListener('click',function(e){
+    var nx=e.target.closest('[data-next]'), bk=e.target.closest('[data-back]');
+    if(nx){
+      if(nx.dataset.next==='2' && !staff.value){ staff.__kp ? staff.__kp.invalid() : staff.focus(); return; }
+      if(nx.dataset.next==='3' && !validStep2()){ return; }
+      go(+nx.dataset.next);
+    }
+    if(bk){ go(+bk.dataset.back); }
+  });
   function buildReview(){
-    var s=STAFF.filter(function(x){return x.id===hidId.value;})[0]||{name:'—'};
+    var tags=Array.prototype.filter.call(document.getElementById('tags').options,function(o){return o.selected;}).map(function(o){return o.value;}).join(', ');
+    var s=staff.options[staff.selectedIndex];
     var rows=[
-      ['<?php echo __('Staff'); ?>', esc(s.name)+(s.user?' <span class="meta">(@'+esc(s.user)+')</span>':'')],
+      ['<?php echo __('Staff'); ?>', esc(s?s.textContent.trim():'—')+(s&&s.dataset.meta?' <span class="meta">'+esc(s.dataset.meta.split(' · ')[0])+'</span>':'')],
       ['<?php echo __('Amount'); ?>', esc(curSym())+esc(parseFloat(v('amount')||'0').toFixed(2))+' <span class="meta">'+esc(curCode())+'</span>'],
       ['<?php echo __('Frequency'); ?>', esc(v('frequency'))],
-      ['<?php echo __('Pay day'); ?>', esc(v('payDay')||'—')],
+      ['<?php echo __('Pay day'); ?>', esc(label('payDay')||'—')],
       ['<?php echo __('Start'); ?>', esc(v('startDate'))],
       ['<?php echo __('End'); ?>', esc(v('endDate')||'—')],
-      ['<?php echo __('Category'); ?>', esc(v('category')||'—')],
-      ['<?php echo __('Tags'); ?>', esc(v('tags')||'—')],
+      ['<?php echo __('Category'); ?>', esc(label('category')||'—')],
+      ['<?php echo __('Tags'); ?>', esc(tags||'—')],
       ['<?php echo __('Notes'); ?>', esc(v('notes')||'—')]
     ];
     document.getElementById('reviewBox').innerHTML = rows.map(function(r){return '<div><dt>'+r[0]+'</dt><dd>'+r[1]+'</dd></div>';}).join('');
   }
-  form.addEventListener('submit',function(e){ if(!hidId.value || !validStep2()){ e.preventDefault(); go(hidId.value?2:1); } });
+  form.addEventListener('submit',function(e){ if(!staff.value || !validStep2()){ e.preventDefault(); e.stopImmediatePropagation(); go(staff.value?2:1); } });
 })();
 </script>
 <?php

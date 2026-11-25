@@ -1,16 +1,17 @@
 <?php
 require_once __DIR__ . '/src/Diagnostics.php';
 KreckBridgeDiagnostics::register(__FILE__);
+require_once __DIR__ . '/src/HomePanel.php';
+require_once __DIR__ . '/src/CorePatch.php';
 
 /*
-Kreck Bridge — KRECK Home.
+Kreck Bridge — KRECK Home (module page).
 
-A modern KRECK landing/home page for the SMS, styled to match the KRECK LMS
-welcome experience (deep-slate + teal) but with its own SMS-first structure:
-a hero, live institution stats, the KRECK LMS connection status, and quick
-actions into the bridge features. Read-only; no SIS records are changed here.
-This page can be set as the admin landing page (System Admin → ... or a
-bookmark) — it is additive and safe.
+The same panel that also appears on the main Home page, directly after the timetable
+(see src/HomePanel.php and the managed patch in src/CorePatch.php). Kept as a page so the
+menu entry, deep links and the "KRECK Home" permission keep working. Read-only for school
+records. For administrators it also shows the state of the Home-page integration, applies it
+automatically the first time it is seen, and offers a one-click re-apply after a Gibbon upgrade.
 */
 
 if (isActionAccessible($guid, $connection2, '/modules/Kreck Bridge/kreck_home.php') == false) {
@@ -18,225 +19,40 @@ if (isActionAccessible($guid, $connection2, '/modules/Kreck Bridge/kreck_home.ph
     return;
 }
 
-$absURL = rtrim((string) $session->get('absoluteURL'), '/');
-$link = static function (string $file) use ($absURL): string {
-    return $absURL . '/index.php?q=/modules/Kreck Bridge/' . $file;
-};
-$setting = static function (string $scope, string $name) use ($connection2) {
-    $stmt = $connection2->prepare('SELECT value FROM gibbonSetting WHERE scope=:scope AND name=:name');
-    $stmt->execute(['scope' => $scope, 'name' => $name]);
-    return (string) ($stmt->fetchColumn() ?: '');
-};
-$countOne = static function (string $sql, array $bind = []) use ($connection2): int {
-    try {
-        $stmt = $connection2->prepare($sql);
-        $stmt->execute($bind);
-        return (int) ($stmt->fetchColumn() ?: 0);
-    } catch (\Throwable $e) {
-        return 0;
-    }
-};
-
-// School identity.
-$schoolName = $setting('System', 'organisationName') ?: ($setting('System', 'systemName') ?: 'KRECK');
-
-// School years for the picker; the current year is the default selection.
-$years = [];
-try {
-    $years = $connection2->query("SELECT gibbonSchoolYearID, name, status FROM gibbonSchoolYear ORDER BY sequenceNumber")
-        ->fetchAll(\PDO::FETCH_ASSOC) ?: [];
-} catch (\Throwable $e) {
-    $years = [];
-}
-$currentYear = null;
-foreach ($years as $y) {
-    if (($y['status'] ?? '') === 'Current') { $currentYear = $y; break; }
-}
-// Selected year: a valid ?gibbonSchoolYearID override, else the current year,
-// else the first year. Only known IDs are honoured (no arbitrary input).
-$requestedYearID = isset($_GET['gibbonSchoolYearID']) ? (string) $_GET['gibbonSchoolYearID'] : '';
-$sy = null;
-foreach ($years as $y) {
-    if ((string) $y['gibbonSchoolYearID'] === $requestedYearID && $requestedYearID !== '') { $sy = $y; break; }
-}
-if ($sy === null) { $sy = $currentYear ?: ($years[0] ?? null); }
-$syid = $sy['gibbonSchoolYearID'] ?? null;
-$syName = $sy['name'] ?? '—';
-$viewingCurrent = $currentYear !== null && $syid !== null && (string) $syid === (string) $currentYear['gibbonSchoolYearID'];
-
-// Live institution stats (best-effort; any failure shows 0, never an error).
-$students = $syid ? $countOne(
-    "SELECT COUNT(*) FROM gibbonPerson p
-     JOIN gibbonStudentEnrolment se ON se.gibbonPersonID=p.gibbonPersonID AND se.gibbonSchoolYearID=:syid
-     JOIN gibbonRole r ON r.gibbonRoleID=p.gibbonRoleIDPrimary AND r.category='Student'
-     WHERE p.status='Full'", ['syid' => $syid]) : 0;
-$staff = $countOne(
-    "SELECT COUNT(DISTINCT p.gibbonPersonID) FROM gibbonPerson p
-     JOIN gibbonRole r ON r.gibbonRoleID=p.gibbonRoleIDPrimary AND r.category='Staff'
-     WHERE p.status='Full'");
-$classes = $syid ? $countOne(
-    "SELECT COUNT(*) FROM gibbonCourseClass cc
-     JOIN gibbonCourse c ON c.gibbonCourseID=cc.gibbonCourseID AND c.gibbonSchoolYearID=:syid", ['syid' => $syid]) : 0;
-
-// KRECK rule: active students not linked to any parent/guardian (passive warn).
-$noParent = $syid ? $countOne(
-    "SELECT COUNT(*) FROM gibbonPerson p
-     JOIN gibbonStudentEnrolment se ON se.gibbonPersonID=p.gibbonPersonID AND se.gibbonSchoolYearID=:syid
-     WHERE p.status='Full'
-       AND p.gibbonRoleIDPrimary=(SELECT gibbonRoleID FROM gibbonRole WHERE category='Student' ORDER BY gibbonRoleID LIMIT 1)
-       AND NOT EXISTS (SELECT 1 FROM gibbonFamilyChild fc JOIN gibbonFamilyAdult fa ON fa.gibbonFamilyID=fc.gibbonFamilyID WHERE fc.gibbonPersonID=p.gibbonPersonID)",
-    ['syid' => $syid]) : 0;
-$canSeeNoParent = isActionAccessible($guid, $connection2, '/modules/Kreck Bridge/kreck_students_noparent.php');
-
-// KRECK LMS connection status (last successful heartbeat, either direction).
-$endpoint = $setting('Kreck Bridge', 'moodleEndpoint');
-$outHeartbeat = (int) ($setting('Kreck Bridge', 'gibbonHeartbeatAt') ?: 0);
-$inHeartbeat = (int) ($setting('Kreck Bridge', 'moodleHeartbeatAt') ?: 0);
-$lastBeat = max($outHeartbeat, $inHeartbeat);
-$connected = $endpoint !== '' && $lastBeat > 0 && (time() - $lastBeat) < 86400 * 7;
-$connLabel = $endpoint === ''
-    ? __('Not configured')
-    : ($lastBeat > 0 ? sprintf(__('Last checked %s'), date('j M Y, H:i', $lastBeat)) : __('Never checked'));
-
-// Quick actions (filtered to what this user may access).
-$actions = [
-    ['kreck_planner_add.php', __('Add a Lesson'), __('Add a lesson or event straight to the calendar with a quick guided form — no approval needed.'), 'M8 2v4M16 2v4M3 10h18M5 6h14a2 2 0 012 2v11a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2M12 13v4M10 15h4'],
-    ['kreck_export.php', __('Export to KRECK LMS'), __('Preview and sync this year to the KRECK LMS, or download the manifest / SMS links.'), 'M4 12h16M12 4l8 8-8 8'],
-    ['kreck_import.php', __('Import Institution Data'), __('Seed the institution from a table or spreadsheet, reusing the SMS import engine.'), 'M12 20V4M4 12l8 8 8-8'],
-    ['kreck_builder.php', __('Institution Builder'), __('Build the whole institution in the app, step by step in the right order, then validate and import.'), 'M4 6h6v6H4zM14 6h6v4h-6zM4 16h6v2H4zM14 14h6v4h-6z'],
-    ['kreck_lms.php', __('KRECK LMS Classes'), __('Browse classes and activities imported from the KRECK LMS, and import SMS links.'), 'M4 6h16M4 12h16M4 18h10'],
-    ['kreck_marks.php', __('KRECK LMS Marks'), __('Review the gradebook marks exported from the KRECK LMS onto the school record.'), 'M5 13l4 4L19 7'],
-    ['kreck_salary.php', __('Staff Salaries'), __('Record recurring staff salary definitions that drive the payroll run.'), 'M12 1v22M17 5H9a3 3 0 000 6h6a3 3 0 010 6H6'],
-    ['kreck_settings.php', __('KRECK Settings'), __('Set the KRECK LMS endpoint and token, and run the connection heartbeat.'), 'M10 3h4l1 3 3 1v4l-3 1-1 3h-4l-1-3-3-1V7l3-1z'],
-];
-$visibleActions = [];
-foreach ($actions as $a) {
-    if (isActionAccessible($guid, $connection2, '/modules/Kreck Bridge/' . $a[0])) {
-        $visibleActions[] = $a;
-    }
-}
-
 $page->breadcrumbs->add(__('KRECK Home'));
 
-ob_start();
-?>
-<style>
-.kreck-home{--kh-slate:#10150d;--kh-slate2:#10150d;--kh-teal:#52701f;--kh-teal2:#6a8a28;--kh-amber:#e6b765;--kh-ink:#10150d;--kh-muted:#5a6b7b;max-width:1060px;margin:0 auto;}
-.kreck-home *{box-sizing:border-box;}
-.kh-hero{position:relative;overflow:hidden;border-radius:22px;padding:34px 32px;color:#eaf2f0;
-  background:radial-gradient(760px 420px at 100% -10%,rgba(196, 220, 82,.30),transparent 62%),
-    radial-gradient(520px 360px at -5% 115%,rgba(230, 183, 101,.14),transparent 60%),var(--kh-slate);
-  box-shadow:0 22px 52px rgba(8,16,26,.28);}
-.kh-eyebrow{display:inline-flex;align-items:center;gap:.5rem;font-size:.72rem;font-weight:800;letter-spacing:.16em;text-transform:uppercase;color:#9fd8ce;margin:0;}
-.kh-eyebrow::before{content:"";width:9px;height:9px;border-radius:50%;background:var(--kh-amber);box-shadow:0 0 14px rgba(230, 183, 101,.7);}
-.kh-hero h1{margin:.5rem 0 0;font-size:clamp(1.9rem,4.4vw,3rem);font-weight:800;line-height:1.05;color:#fff;letter-spacing:-.02em;}
-.kh-hero p.sub{margin:.7rem 0 0;max-width:60ch;color:#c2d2d8;font-size:clamp(1rem,2vw,1.12rem);}
-.kh-cta{display:flex;flex-wrap:wrap;gap:.6rem;margin-top:1.4rem;}
-.kh-btn{display:inline-flex;align-items:center;gap:.45rem;font-weight:700;border-radius:999px;padding:.66rem 1.2rem;text-decoration:none;border:0;cursor:pointer;transition:transform .12s ease,background .12s ease;}
-.kh-btn.primary{background:var(--kh-teal);color:#fff;}
-.kh-btn.primary:hover{background:#3c5618;transform:translateY(-1px);color:#fff;}
-.kh-btn.ghost{background:rgba(255,255,255,.08);color:#eaf2f0;border:1px solid rgba(255,255,255,.22);}
-.kh-btn.ghost:hover{background:rgba(255,255,255,.15);color:#fff;}
-.kh-pill{position:absolute;top:22px;right:24px;display:inline-flex;align-items:center;gap:.45rem;font-size:.76rem;font-weight:700;
-  padding:.4rem .8rem;border-radius:999px;background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.2);color:#d7e4e2;}
-.kh-dot{width:9px;height:9px;border-radius:50%;}
-.kh-dot.on{background:#34d399;box-shadow:0 0 10px rgba(52,211,153,.8);}
-.kh-dot.off{background:#e6b765;}
-.kh-stats{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:14px;margin-top:20px;}
-@media(max-width:720px){.kh-stats{grid-template-columns:repeat(2,minmax(0,1fr));}.kh-pill{position:static;display:inline-flex;margin-top:14px;}}
-.kh-stat{background:#fff;border:1px solid rgba(15,30,46,.08);border-radius:16px;padding:16px 18px;box-shadow:0 1px 2px rgba(15,30,46,.05),0 10px 26px rgba(15,30,46,.06);}
-.kh-stat .v{display:block;font-size:clamp(1.5rem,3.2vw,2.1rem);font-weight:800;color:var(--kh-slate2);line-height:1.05;font-variant-numeric:tabular-nums;}
-.kh-stat .l{display:block;margin-top:.35rem;font-size:.7rem;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:var(--kh-muted);}
-.kh-section-title{margin:28px 0 12px;font-size:1.1rem;font-weight:800;color:var(--kh-ink);letter-spacing:-.01em;}
-.kh-actions{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:14px;}
-.kh-action{display:flex;gap:14px;align-items:flex-start;text-decoration:none;color:inherit;background:#fff;border:1px solid rgba(15,30,46,.09);
-  border-radius:16px;padding:16px 16px;transition:transform .14s ease,box-shadow .14s ease,border-color .14s ease;}
-.kh-action:hover{transform:translateY(-3px);border-color:rgba(196, 220, 82,.5);box-shadow:0 16px 36px rgba(15,30,46,.12);color:inherit;text-decoration:none;}
-.kh-ico{flex:none;width:42px;height:42px;border-radius:12px;display:grid;place-items:center;color:#fff;
-  background:linear-gradient(145deg,var(--kh-teal2),var(--kh-teal));box-shadow:inset 0 1px 0 rgba(255,255,255,.3);}
-.kh-action h3{margin:0;font-size:.98rem;font-weight:800;color:var(--kh-slate2);}
-.kh-action p{margin:.25rem 0 0;font-size:.82rem;line-height:1.45;color:var(--kh-muted);}
-.kh-foot{margin:26px 2px 6px;color:var(--kh-muted);font-size:.8rem;}
-.kh-year{margin-top:1.2rem;display:flex;align-items:center;gap:.55rem;flex-wrap:wrap;}
-.kh-year label{font-size:.7rem;font-weight:800;letter-spacing:.1em;text-transform:uppercase;color:#9fd8ce;}
-.kh-year select{appearance:none;-webkit-appearance:none;background:rgba(255,255,255,.1)
-  url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23c2d2d8' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E") no-repeat right .8rem center;
-  color:#eaf2f0;border:1px solid rgba(255,255,255,.26);border-radius:999px;padding:.42rem 2rem .42rem .95rem;font-weight:700;font-size:.85rem;cursor:pointer;}
-.kh-year select:focus{outline:none;border-color:var(--kh-teal2);box-shadow:0 0 0 3px rgba(106, 138, 40,.3);}
-.kh-year select option{color:#10150d;}
-</style>
+// ---- Home-page integration (administrators only) --------------------------------------------
+$integrationHtml = '';
+if (isActionAccessible($guid, $connection2, '/modules/Kreck Bridge/kreck_settings.php')) {
+    $note = null;
+    $op = ($_SERVER['REQUEST_METHOD'] === 'POST') ? ($_POST['kreckCorePatch'] ?? '') : '';
+    if ($op === 'apply' || $op === 'revert') {
+        $r = $op === 'apply' ? KreckCorePatch::apply() : KreckCorePatch::revert();
+        $note = [$r['ok'] ? 'ok' : 'warn', $r['message']];
+    } else {
+        // First sight (or after a Gibbon upgrade): apply automatically when it is safe to.
+        $before = KreckCorePatch::status();
+        KreckCorePatch::ensure();
+        foreach (KreckCorePatch::status() as $id => $row) {
+            if (($before[$id]['state'] ?? '') === 'pending' && $row['state'] === 'applied') {
+                $note = ['ok', __('KRECK Home is now shown on the main Home page, after the timetable.')];
+            }
+        }
+    }
+    $esc = fn($s) => htmlspecialchars((string) $s, ENT_QUOTES, 'UTF-8');
+    $self = $session->get('absoluteURL') . '/index.php?q=/modules/Kreck Bridge/kreck_home.php';
+    foreach (KreckCorePatch::status() as $row) {
+        $ok = $row['state'] === 'applied';
+        $integrationHtml .= '<div style="max-width:1060px;margin:0 auto 14px;padding:10px 16px;border-radius:12px;display:flex;gap:12px;flex-wrap:wrap;align-items:center;font-size:13px;'
+            . ($ok ? 'background:#f1f6e6;border:1px solid #d9e3cf;color:#42571d' : 'background:#fff7ed;border:1px solid #fed7aa;color:#9a3412') . '">'
+            . '<strong>' . $esc(__('Home page integration')) . ':</strong> '
+            . '<span style="flex:1;min-width:220px">' . $esc($row['label']) . ' — '
+            . ($ok ? $esc(__('active')) : $esc(__('not active')) . ($row['message'] ? ' (' . $esc($row['message']) . ')' : '')) . '</span>'
+            . ($note ? '<span style="font-weight:700">' . $esc($note[1]) . '</span>' : '')
+            . '<form method="post" action="' . $esc($self) . '" style="margin:0"><input type="hidden" name="q" value="/modules/Kreck Bridge/kreck_home.php">'
+            . '<button type="submit" name="kreckCorePatch" value="apply" style="background:#52701f;color:#fff;border:0;border-radius:8px;padding:6px 14px;font-weight:700;cursor:pointer">'
+            . $esc($ok ? __('Re-check') : __('Apply now')) . '</button></form></div>';
+    }
+}
 
-<div class="kreck-home">
-  <section class="kh-hero">
-    <span class="kh-pill"><span class="kh-dot <?php echo $connected ? 'on' : 'off'; ?>"></span>
-      <?php echo __('KRECK LMS') . ' · ' . htmlspecialchars($connLabel); ?></span>
-    <p class="kh-eyebrow"><?php echo __('KRECK SMS'); ?></p>
-    <h1><?php echo htmlspecialchars($schoolName); ?></h1>
-    <p class="sub"><?php echo __('The school system of record for your institution — people, classes and finance in one place, connected to the KRECK LMS so learning and administration feel like one product.'); ?></p>
-    <div class="kh-cta">
-      <?php if (isActionAccessible($guid, $connection2, '/modules/Kreck Bridge/kreck_export.php')) { ?>
-        <a class="kh-btn primary" href="<?php echo htmlspecialchars($link('kreck_export.php')); ?>"><?php echo __('Export to KRECK LMS'); ?> &rarr;</a>
-      <?php } ?>
-      <?php if (isActionAccessible($guid, $connection2, '/modules/Kreck Bridge/kreck_import.php')) { ?>
-        <a class="kh-btn ghost" href="<?php echo htmlspecialchars($link('kreck_import.php')); ?>"><?php echo __('Import Institution Data'); ?></a>
-      <?php } ?>
-    </div>
-    <?php if (count($years) > 1) { ?>
-      <form method="get" action="" class="kh-year">
-        <input type="hidden" name="q" value="/modules/Kreck Bridge/kreck_home.php">
-        <label for="kh-year-sel"><?php echo __('School year'); ?></label>
-        <select id="kh-year-sel" name="gibbonSchoolYearID" onchange="this.form.submit()">
-          <?php foreach ($years as $y) { ?>
-            <option value="<?php echo htmlspecialchars((string) $y['gibbonSchoolYearID']); ?>"<?php echo ((string) $y['gibbonSchoolYearID'] === (string) $syid) ? ' selected' : ''; ?>>
-              <?php echo htmlspecialchars((string) $y['name']) . (($y['status'] ?? '') === 'Current' ? ' (' . __('current') . ')' : ''); ?>
-            </option>
-          <?php } ?>
-        </select>
-      </form>
-    <?php } ?>
-    <div class="kh-stats">
-      <div class="kh-stat"><span class="v"><?php echo number_format($students); ?></span><span class="l"><?php echo __('Students'); ?></span></div>
-      <div class="kh-stat"><span class="v"><?php echo number_format($staff); ?></span><span class="l"><?php echo __('Staff'); ?></span></div>
-      <div class="kh-stat"><span class="v"><?php echo number_format($classes); ?></span><span class="l"><?php echo __('Classes'); ?></span></div>
-      <div class="kh-stat"><span class="v" style="font-size:1.25rem"><?php echo htmlspecialchars($syName); ?></span><span class="l"><?php echo __('School Year'); ?></span></div>
-    </div>
-
-    <?php if ($noParent > 0) { ?>
-      <div style="margin-top:16px;background:#fffbeb;border:1px solid #fde68a;border-radius:14px;padding:14px 18px;display:flex;align-items:center;gap:14px;flex-wrap:wrap;color:#92400e;">
-        <span style="font-size:1.6rem;font-weight:800;line-height:1;color:#b45309;"><?php echo number_format($noParent); ?></span>
-        <span style="flex:1;min-width:220px;font-size:14px;line-height:1.45;">
-          <strong><?php echo __('students have no parent/guardian linked.'); ?></strong><br>
-          <?php echo __('KRECK rule (passive): the system keeps working, but these students should have a parent linked so the parent can access academics and fees.'); ?>
-        </span>
-        <?php if ($canSeeNoParent) { ?>
-          <a href="<?php echo htmlspecialchars($link('kreck_students_noparent.php')); ?>" style="background:#b45309;color:#fff;text-decoration:none;border-radius:9px;padding:9px 16px;font-weight:700;font-size:13px;white-space:nowrap;"><?php echo __('Review & link'); ?> &rarr;</a>
-        <?php } ?>
-      </div>
-    <?php } ?>
-  </section>
-
-  <?php if (!empty($visibleActions)) { ?>
-    <h2 class="kh-section-title"><?php echo __('Quick actions'); ?></h2>
-    <div class="kh-actions">
-      <?php foreach ($visibleActions as $a) { ?>
-        <a class="kh-action" href="<?php echo htmlspecialchars($link($a[0])); ?>">
-          <span class="kh-ico" aria-hidden="true">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="<?php echo $a[3]; ?>"/></svg>
-          </span>
-          <span>
-            <h3><?php echo htmlspecialchars($a[1]); ?></h3>
-            <p><?php echo htmlspecialchars($a[2]); ?></p>
-          </span>
-        </a>
-      <?php } ?>
-    </div>
-  <?php } ?>
-
-  <p class="kh-foot"><?php
-    echo $viewingCurrent
-        ? __('KRECK MicroLearn — SMS and LMS, one record. Figures reflect the current school year; nothing on this page changes your data.')
-        : sprintf(__('KRECK MicroLearn — SMS and LMS, one record. Figures reflect %s; nothing on this page changes your data.'), htmlspecialchars((string) $syName));
-  ?></p>
-</div>
-<?php
-echo ob_get_clean();
+echo $integrationHtml . KreckHomePanel::render($guid, $connection2, $session, ['context' => 'page']);

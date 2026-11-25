@@ -107,9 +107,11 @@ class KreckSalaryManager
     /** Payments for a period, joined to the staff member. */
     public function periodPayments(string $period): array
     {
-        $sql = "SELECT sp.*, p.title, p.preferredName, p.surname, p.username, p.email
+        // Each payment carries its salary's own currency (BWP when none is recorded).
+        $sql = "SELECT sp.*, p.title, p.preferredName, p.surname, p.username, p.email, COALESCE(NULLIF(sal.currency,''), 'BWP') AS currency
                 FROM kreckSalaryPayment sp
                 JOIN gibbonPerson p ON p.gibbonPersonID = sp.gibbonPersonID
+                LEFT JOIN kreckSalary sal ON sal.kreckSalaryID = sp.kreckSalaryID
                 WHERE sp.period = :period
                 ORDER BY p.surname, p.preferredName";
         $stmt = $this->db->prepare($sql);
@@ -120,8 +122,9 @@ class KreckSalaryManager
     public function getPayment($id): ?array
     {
         $stmt = $this->db->prepare(
-            "SELECT sp.*, p.title, p.preferredName, p.surname, p.username, p.email
+            "SELECT sp.*, p.title, p.preferredName, p.surname, p.username, p.email, COALESCE(NULLIF(sal.currency,''), 'BWP') AS currency
              FROM kreckSalaryPayment sp JOIN gibbonPerson p ON p.gibbonPersonID = sp.gibbonPersonID
+             LEFT JOIN kreckSalary sal ON sal.kreckSalaryID = sp.kreckSalaryID
              WHERE sp.kreckSalaryPaymentID = :id"
         );
         $stmt->execute(['id' => $id]);
@@ -155,10 +158,11 @@ class KreckSalaryManager
     public function dueReminders(int $withinDays = 3): array
     {
         $cutoff = date('Y-m-d', strtotime("+$withinDays days"));
-        $sql = "SELECT sp.*, p.title, p.preferredName, p.surname, p.username, p.email,
+        $sql = "SELECT sp.*, p.title, p.preferredName, p.surname, p.username, p.email, COALESCE(NULLIF(sal.currency,''), 'BWP') AS currency,
                        DATEDIFF(sp.dueDate, CURDATE()) AS daysUntilDue
                 FROM kreckSalaryPayment sp
                 JOIN gibbonPerson p ON p.gibbonPersonID = sp.gibbonPersonID
+                LEFT JOIN kreckSalary sal ON sal.kreckSalaryID = sp.kreckSalaryID
                 WHERE sp.status IN ('Pending','Finalized')
                   AND sp.dueDate IS NOT NULL
                   AND sp.dueDate <= :cutoff
@@ -233,6 +237,63 @@ class KreckSalaryManager
         return $amount > 0 ? $amount : null;
     }
 
+    /** The ONE default currency for the whole product: Botswana Pula. Never fall back to anything else. */
+    const DEFAULT_CURRENCY = 'BWP';
+
+    /** Pay frequencies — mirrors the kreckSalary.frequency ENUM. */
+    const FREQUENCIES = ['Monthly', 'Fortnightly', 'Weekly', 'Termly', 'Annually', 'Once'];
+
+    /**
+     * Normalise a currency code. Blank → BWP (the product default). A known ISO code
+     * (or an SMS-style "BWP P" setting value) → its 3-letter code. Anything else → null,
+     * so callers can report the bad value instead of silently saving it.
+     */
+    public static function normaliseCurrency($code): ?string
+    {
+        $c = strtoupper(trim((string) $code));
+        if ($c === '') {
+            return self::DEFAULT_CURRENCY;
+        }
+        $c = strtok($c, ' ');
+        return isset(self::currencyCatalog()[$c]) ? $c : null;
+    }
+
+    /** Normalise a pay frequency (case-insensitive). Blank → Monthly. Unknown → null. */
+    public static function normaliseFrequency($value): ?string
+    {
+        $v = trim((string) $value);
+        if ($v === '') {
+            return 'Monthly';
+        }
+        foreach (self::FREQUENCIES as $f) {
+            if (strcasecmp($f, $v) === 0) {
+                return $f;
+            }
+        }
+        return null;
+    }
+
+    /** Pay day of month: blank → null (none); 1–28 → int; anything else → -1 (invalid). */
+    public static function normalisePayDay($value): ?int
+    {
+        $s = trim((string) $value);
+        if ($s === '') {
+            return null;
+        }
+        if (!ctype_digit($s)) {
+            return -1;
+        }
+        $n = (int) $s;
+        return ($n >= 1 && $n <= 28) ? $n : -1;
+    }
+
+    /** Category: trimmed, capped at the column width (90). Blank → null. */
+    public static function normaliseCategory($value): ?string
+    {
+        $c = trim(preg_replace('/\s+/', ' ', (string) $value));
+        return $c === '' ? null : mb_substr($c, 0, 90);
+    }
+
     /**
      * Create a salary definition. It is ALWAYS created as approvalStatus
      * 'Pending': finance enters it, but it is not payroll-eligible until a
@@ -249,14 +310,15 @@ class KreckSalaryManager
         $ins->execute([
             'pid'       => $d['gibbonPersonID'],
             'amount'    => $d['amount'],
-            'currency'  => $d['currency'] ?? null,
-            'frequency' => $d['frequency'] ?? 'Monthly',
-            'payDay'    => $d['payDay'] ?? null,
+            // BWP policy: a missing/unknown currency is always stored as BWP, never NULL or another default.
+            'currency'  => self::normaliseCurrency($d['currency'] ?? null) ?? self::DEFAULT_CURRENCY,
+            'frequency' => self::normaliseFrequency($d['frequency'] ?? null) ?? 'Monthly',
+            'payDay'    => (($pd = self::normalisePayDay($d['payDay'] ?? null)) !== null && $pd > 0) ? $pd : null,
             'startDate' => $d['startDate'],
             'endDate'   => !empty($d['endDate']) ? $d['endDate'] : null,
             'status'    => $d['status'] ?? 'Active',
-            'category'  => !empty($d['category']) ? trim((string) $d['category']) : null,
-            'tags'      => !empty($d['tags']) ? $this->normaliseTags($d['tags']) : null,
+            'category'  => self::normaliseCategory($d['category'] ?? null),
+            'tags'      => !empty($d['tags']) ? mb_substr((string) self::normaliseTags($d['tags']), 0, 255) : null,
             'notes'     => $d['notes'] ?? null,
             'creator'   => $userID ?: null,
         ]);
@@ -291,19 +353,25 @@ class KreckSalaryManager
         ];
     }
 
-    /** Symbol for an ISO currency code (falls back to the code itself). */
+    /** Symbol for an ISO currency code. A blank code means BWP (the product default). */
     public static function currencySymbol(?string $code): string
     {
         $code = strtoupper(trim((string) $code));
+        if ($code === '') {
+            $code = self::DEFAULT_CURRENCY;
+        }
         $cat = self::currencyCatalog();
-        return isset($cat[$code]) ? $cat[$code][0] : ($code !== '' ? $code : '');
+        return isset($cat[$code]) ? $cat[$code][0] : $code;
     }
 
-    /** The 3-letter ISO code at the front of an SMS currency setting ("USD $" => "USD"). */
+    /**
+     * The 3-letter ISO code at the front of an SMS currency setting ("BWP P" => "BWP").
+     * An empty or unreadable setting means BWP — there is no other fallback.
+     */
     public static function currencyCodeFromSetting($setting): string
     {
         $tok = strtok(trim((string) $setting), ' ');
-        return $tok !== false ? strtoupper($tok) : '';
+        return ($tok !== false && $tok !== '') ? strtoupper($tok) : self::DEFAULT_CURRENCY;
     }
 
     /** Normalise a comma/semicolon-separated tag string: trim, de-dupe, re-join. */
@@ -393,6 +461,22 @@ class KreckSalaryManager
             "SELECT DISTINCT category FROM kreckSalary WHERE category IS NOT NULL AND category <> '' ORDER BY category"
         )->fetchAll(\PDO::FETCH_COLUMN) ?: [];
         return $rows;
+    }
+
+    /** Every distinct tag already used on a salary, sorted — suggestions for the tag picker. */
+    public function salaryTags(): array
+    {
+        $rows = $this->db->query("SELECT tags FROM kreckSalary WHERE tags IS NOT NULL AND tags <> ''")->fetchAll(\PDO::FETCH_COLUMN) ?: [];
+        $all = [];
+        foreach ($rows as $r) {
+            foreach (preg_split('/[,;]+/', (string) $r) as $t) {
+                $t = trim($t);
+                if ($t !== '') { $all[$t] = true; }
+            }
+        }
+        $tags = array_keys($all);
+        sort($tags, SORT_NATURAL | SORT_FLAG_CASE);
+        return $tags;
     }
 
     /** Count of pending definitions (for the approval-page menu badge/summary). */

@@ -17,7 +17,7 @@ $description = 'KRECK SMS↔LMS bridge: synchronizes institution manifests, mana
 $entryURL    = 'kreck_home.php';
 $type        = 'Additional';   // Installer rejects anything that is not 'Additional'.
 $category    = 'Other';
-$version     = '0.5.33';        // gibbonModule.version is varchar(8).
+$version     = '0.5.34';        // gibbonModule.version is varchar(8).
 $author      = 'KRECK MicroLearn';
 $url         = 'https://krecke.example';
 
@@ -46,13 +46,34 @@ $moduleTables[] = "CREATE TABLE `kreckBridgeExport` (
     `filename` VARCHAR(255) NULL,
     PRIMARY KEY (`kreckBridgeExportID`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;";
+// SMS -> LMS event mirror: what has been sent (content hash per event) + recent runs.
+$moduleTables[] = "CREATE TABLE `kreckEventLedger` (
+    `sourceID` VARCHAR(190) NOT NULL,
+    `kind` VARCHAR(30) NOT NULL DEFAULT '',
+    `eventDate` DATE NULL,
+    `contentHash` CHAR(40) NOT NULL,
+    `status` ENUM('Synced','Pending','Skipped','Failed') NOT NULL DEFAULT 'Pending',
+    `message` VARCHAR(255) NULL,
+    `timestampSynced` DATETIME NULL,
+    `timestampUpdated` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (`sourceID`), KEY `eventDate` (`eventDate`), KEY `status` (`status`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;";
+$moduleTables[] = "CREATE TABLE `kreckEventRun` (
+    `kreckEventRunID` INT UNSIGNED AUTO_INCREMENT,
+    `started` DATETIME NOT NULL,
+    `finished` DATETIME NULL,
+    `trigger` VARCHAR(20) NOT NULL DEFAULT 'manual',
+    `ok` ENUM('Y','N') NOT NULL DEFAULT 'N',
+    `summary` TEXT NULL,
+    PRIMARY KEY (`kreckEventRunID`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;";
 // Staff-salary record-keeping (recurring definition + per-period payment).
 $moduleTables[] = "CREATE TABLE `kreckSalary` (
     `kreckSalaryID` INT(12) UNSIGNED ZEROFILL AUTO_INCREMENT,
     `gibbonPersonID` INT(10) UNSIGNED ZEROFILL NOT NULL,
     `gibbonSchoolYearID` INT(3) UNSIGNED ZEROFILL NULL,
     `amount` DECIMAL(13,2) NOT NULL,
-    `currency` VARCHAR(3) NULL,
+    `currency` VARCHAR(3) NOT NULL DEFAULT 'BWP',
     `frequency` ENUM('Monthly','Fortnightly','Weekly','Termly','Annually','Once') NOT NULL DEFAULT 'Monthly',
     `payDay` INT(2) NULL,
     `startDate` DATE NOT NULL,
@@ -614,3 +635,5 @@ $hooks[] = "INSERT INTO gibbonNotificationEvent (event, moduleName, actionName, 
 // otherwise theme-driven: themes/Kreck css/js/img.)
 $hooks[] = "UPDATE gibbonSetting SET value='themes/Kreck/img/logo.png' WHERE scope='System' AND name='organisationLogo' AND (value LIKE '%Default/img/logo%' OR value='' OR value IS NULL);";
 $hooks[] = "UPDATE gibbonSetting SET value='KRECK' WHERE scope='System' AND name='systemName' AND value='SMS';";
+// BWP is the product-wide default currency: set the school currency to Botswana Pula while it is still the stock default.
+$hooks[] = "UPDATE gibbonSetting SET value='BWP P' WHERE scope='System' AND name='currency' AND (value IS NULL OR TRIM(value)='' OR value='USD $');";

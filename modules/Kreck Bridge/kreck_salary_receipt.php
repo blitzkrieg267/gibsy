@@ -32,7 +32,8 @@ if (!$pay) {
 $settingGateway = $container->get(SettingGateway::class);
 $orgName = $settingGateway->getSettingByScope('System', 'organisationName');
 $orgNameShort = $settingGateway->getSettingByScope('System', 'organisationNameShort');
-$currency = preg_replace('/\s*\[.*/', '', (string) $settingGateway->getSettingByScope('System', 'currency'));
+// The receipt shows the salary's own currency symbol (BWP when none is recorded).
+$currency = KreckSalaryManager::currencySymbol($pay['currency'] ?? '');
 $staffName = Format::name($pay['title'] ?? '', $pay['preferredName'], $pay['surname'], 'Staff', false);
 $periodLabel = KreckSalaryManager::periodLabel($pay['period']);
 $isPaid = ($pay['status'] === 'Paid');

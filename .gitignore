@@ -43,3 +43,7 @@ node_modules
 
 # Docker environment — never commit real credentials
 .env
+
+# Kreck Bridge core-patch backups
+*.kreck-orig
+*.kreck-tmp

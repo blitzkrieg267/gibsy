@@ -1,5 +1,6 @@
 <?php
 require_once __DIR__ . '/src/Diagnostics.php';
+require_once __DIR__ . '/src/Ui.php';
 KreckBridgeDiagnostics::register(__FILE__);
 
 /*
@@ -268,23 +269,30 @@ ob_start();
     return Object.keys(out);
   }
 
+  // Set a field's value; for a picker <select> keep a typed value that is not in its list by adding it as an option.
+  function setVal(inp,v){
+    if(inp.tagName==='SELECT' && v!=='' && ![].some.call(inp.options,function(o){return o.value===v;})){
+      var o=document.createElement('option'); o.value=v; o.textContent=v; inp.appendChild(o);
+    }
+    inp.value=v;
+  }
+
   function cellInput(c){
     var df = 'data-field="'+esc(c.field)+'"';
     // Fixed option set (yes/no, weekday) -> select.
     if (c.options && c.options.length && !c.relTable){
-      return '<select '+df+'><option value=""></option>'+c.options.map(function(o){return '<option value="'+esc(o.value)+'">'+esc(o.label)+'</option>';}).join('')+'</select>';
+      return '<select data-kpicker '+df+'><option value=""></option>'+c.options.map(function(o){return '<option value="'+esc(o.value)+'">'+esc(o.label)+'</option>';}).join('')+'</select>';
     }
     // Date / time inputs.
     if (c.filter==='date' || c.filter==='schoolyeardate') return '<input type="date" '+df+'>';
     if (c.filter==='time') return '<input type="time" '+df+'>';
     // Relationship / pick-list -> datalist (live options + earlier-step values).
     if (c.relTable || (c.options && c.options.length)){
-      var listId='dl_'+c.field.replace(/[^a-z0-9]/gi,'')+'_'+Math.random().toString(36).slice(2,7);
       var opts={};
       (c.options||[]).forEach(function(o){ opts[o.value]=o.label||o.value; });
       suggestionsFor(c.relTable).forEach(function(v){ if(!(v in opts)) opts[v]=v+' — (added in this builder)'; });
-      var dl='<datalist id="'+listId+'">'+Object.keys(opts).map(function(v){return '<option value="'+esc(v)+'">'+esc(opts[v])+'</option>';}).join('')+'</datalist>';
-      return '<input type="text" list="'+listId+'" '+df+' autocomplete="off">'+dl;
+      // Searchable dropdown over the live options + values added in earlier steps; new values can still be typed in.
+      return '<select data-kpicker data-kpicker-create '+df+'><option value=""></option>'+Object.keys(opts).map(function(v){return '<option value="'+esc(v)+'">'+esc(opts[v])+'</option>';}).join('')+'</select>';
     }
     return '<input type="text" '+df+'>';
   }
@@ -303,7 +311,7 @@ ob_start();
     var container=document.getElementById('records');
     container.querySelectorAll('.krecord').forEach(function(card,i){
       var r=(state[s.type]||[])[i]||{};
-      card.querySelectorAll('[data-field]').forEach(function(inp){ if(r[inp.getAttribute('data-field')]!=null) inp.value=r[inp.getAttribute('data-field')]; });
+      card.querySelectorAll('[data-field]').forEach(function(inp){ var v=r[inp.getAttribute('data-field')]; if(v!=null) setVal(inp,v); });
     });
     document.getElementById('addRow').addEventListener('click',function(){ syncFromDom(); state[s.type].push(blankRow(s)); renderPanel(); });
     container.addEventListener('click',function(e){ if(e.target.classList.contains('row-del')){ syncFromDom(); var card=e.target.closest('.krecord'); var idx=[].indexOf.call(this.children,card); if(state[s.type].length>1){ state[s.type].splice(idx,1);} else { state[s.type]=[blankRow(s)]; } renderPanel(); }});
@@ -355,4 +363,4 @@ ob_start();
 })();
 </script>
 <?php
-echo ob_get_clean();
+echo KreckUi::assets() . ob_get_clean();

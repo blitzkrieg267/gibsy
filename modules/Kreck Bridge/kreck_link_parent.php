@@ -1,5 +1,6 @@
 <?php
 require_once __DIR__ . '/src/Diagnostics.php';
+require_once __DIR__ . '/src/Ui.php';
 KreckBridgeDiagnostics::register(__FILE__);
 
 /*
@@ -76,13 +77,26 @@ $selectedStudent = (string) ($_POST['gibbonPersonIDStudent'] ?? ($_GET['gibbonPe
 
 // Candidate existing adults (non-students) for the datalist convenience.
 $adults = $connection2->query(
-    "SELECT p.username, p.surname, p.preferredName
+    "SELECT p.username, p.surname, p.preferredName, p.email, r.name AS roleName
      FROM gibbonPerson p JOIN gibbonRole r ON r.gibbonRoleID=p.gibbonRoleIDPrimary
      WHERE p.status='Full' AND r.category<>'Student'
      ORDER BY p.surname, p.preferredName LIMIT 1000"
 )->fetchAll(\PDO::FETCH_ASSOC);
 
 $page->breadcrumbs->add(__('Link Parent to Student'));
+
+// Searchable-picker option lists (value => [label, meta]).
+$studentOptions = [];
+foreach ($students as $s) {
+    $studentOptions[(string) $s['gibbonPersonID']] = [Format::name('', $s['preferredName'], $s['surname'], 'Student', true), '@' . $s['username']];
+}
+$relOptions = [];
+foreach (['Mother', 'Father', 'Guardian', 'Grandparent', 'Other'] as $rel) { $relOptions[$rel] = __($rel); }
+$adultOptions = [];
+foreach ($adults as $a) {
+    $adultOptions[$a['username']] = [Format::name('', $a['preferredName'], $a['surname'], 'Parent', true),
+        trim('@' . $a['username'] . ($a['roleName'] ? ' · ' . $a['roleName'] : '') . ($a['email'] ? ' · ' . $a['email'] : ''))];
+}
 
 ob_start();
 ?>
@@ -123,29 +137,19 @@ ob_start();
         <input type="hidden" name="kreckAction" value="link">
         <div class="card">
             <label><?php echo __('Student'); ?> <span class="hint"><?php echo __('(the child)'); ?></span></label>
-            <select name="gibbonPersonIDStudent" required>
-                <option value=""><?php echo __('Select a student…'); ?></option>
-                <?php foreach ($students as $s): ?>
-                    <option value="<?php echo $s['gibbonPersonID']; ?>" <?php echo ((string) $s['gibbonPersonID'] === $selectedStudent ? 'selected' : ''); ?>>
-                        <?php echo htmlspecialchars(Format::name('', $s['preferredName'], $s['surname'], 'Student', true) . ' (' . $s['username'] . ')'); ?>
-                    </option>
-                <?php endforeach; ?>
-            </select>
+            <?php echo KreckUi::select('gibbonPersonIDStudent', $studentOptions, $selectedStudent, [
+                'required' => true, 'blank' => '', 'placeholder' => __('Choose a student — or type to search…'),
+                'message' => __('Please choose a student.'),
+            ]); ?>
 
             <div class="row">
                 <div>
                     <label><?php echo __('Relationship'); ?></label>
-                    <select name="relationship">
-                        <?php foreach (['Mother','Father','Guardian','Grandparent','Other'] as $rel): ?>
-                            <option value="<?php echo $rel; ?>" <?php echo $rel === 'Guardian' ? 'selected' : ''; ?>><?php echo __($rel); ?></option>
-                        <?php endforeach; ?>
-                    </select>
+                    <?php echo KreckUi::select('relationship', $relOptions, 'Guardian'); ?>
                 </div>
                 <div>
                     <label><?php echo __('Contact priority'); ?> <span class="hint"><?php echo __('(1 = primary contact)'); ?></span></label>
-                    <select name="contactPriority">
-                        <option value="1" selected>1</option><option value="2">2</option><option value="3">3</option>
-                    </select>
+                    <?php echo KreckUi::select('contactPriority', ['1' => '1 — ' . __('primary'), '2' => '2', '3' => '3'], '1'); ?>
                 </div>
             </div>
         </div>
@@ -158,13 +162,10 @@ ob_start();
 
             <div id="klp-existing">
                 <label><?php echo __('Parent/guardian username'); ?></label>
-                <input type="text" name="parentUsername" list="klp-adults" autocomplete="off" placeholder="<?php echo __('Start typing a name or username…'); ?>">
-                <datalist id="klp-adults">
-                    <?php foreach ($adults as $a): ?>
-                        <option value="<?php echo htmlspecialchars($a['username']); ?>"><?php echo htmlspecialchars(Format::name('', $a['preferredName'], $a['surname'], 'Parent', true)); ?></option>
-                    <?php endforeach; ?>
-                </datalist>
-                <p class="hint"><?php echo __('Enter the username of a person who already exists in the system.'); ?></p>
+                <?php echo KreckUi::select('parentUsername', $adultOptions, '', [
+                    'blank' => '', 'placeholder' => __('Choose a person — or type a name, username or email…'),
+                ]); ?>
+                <p class="hint"><?php echo __('Pick a person who already exists in the system.'); ?></p>
             </div>
 
             <div id="klp-new" style="display:none">
@@ -175,7 +176,7 @@ ob_start();
                 <div class="row">
                     <div><label><?php echo __('Preferred name'); ?></label><input type="text" name="preferredName" placeholder="<?php echo __('Defaults to first name'); ?>"></div>
                     <div><label><?php echo __('Gender'); ?></label>
-                        <select name="gender"><option value="Unspecified"><?php echo __('Unspecified'); ?></option><option value="F"><?php echo __('Female'); ?></option><option value="M"><?php echo __('Male'); ?></option><option value="Other"><?php echo __('Other'); ?></option></select>
+                        <?php echo KreckUi::select('gender', ['Unspecified' => __('Unspecified'), 'F' => __('Female'), 'M' => __('Male'), 'Other' => __('Other')], 'Unspecified'); ?>
                     </div>
                 </div>
                 <div class="row">
@@ -196,4 +197,4 @@ ob_start();
     </form>
 </div>
 <?php
-echo ob_get_clean();
+echo KreckUi::assets() . ob_get_clean();
